@@ -1,4 +1,4 @@
-version: 2
+# https://github.com/marketplace/actions/auto-author-assignversion: 2
 updates:
   # Set update schedule for GitHub Actions
   - package-ecosystem: "github-actions"
