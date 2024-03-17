@@ -519,12 +519,12 @@
     {
       "command": "notebook:move-cursor-heading-above-or-collapse",
       "keys": ["ArrowLeft"],
-      "selector": ".jp-Notebook.jp-mod-commandMode"
+      "selector": ".jp-Notebook:focus.jp-mod-commandMode"
     },
     {
       "command": "notebook:move-cursor-heading-below-or-expand",
       "keys": ["ArrowRight"],
-      "selector": ".jp-Notebook.jp-mod-commandMode"
+      "selector": ".jp-Notebook:focus.jp-mod-commandMode"
     },
     {
       "command": "notebook:insert-heading-above",
@@ -624,23 +624,23 @@
       "selector": ".jp-Notebook:focus"
     },
     {
-      "command": "notebook:toggle-cell-line-numbers",
-      "keys": ["L"],
-      "selector": ".jp-Notebook:focus"
-    },
-    {
       "command": "notebook:undo-cell-action",
       "keys": ["Z"],
       "selector": ".jp-Notebook:focus"
     },
     {
-      "command": "notebook:toggle-render-side-by-side",
-      "keys": ["Ctrl Shift R"],
+      "command": "notebook:toggle-render-side-by-side-current",
+      "keys": ["Shift R"],
       "selector": ".jp-Notebook:focus"
     },
     {
-      "command": "notebook:toggle-render-side-by-side-current",
-      "keys": ["Shift R"],
+      "command": "notebook:move-cell-up",
+      "keys": ["Ctrl Shift ArrowUp"],
+      "selector": ".jp-Notebook:focus"
+    },
+    {
+      "command": "notebook:move-cell-down",
+      "keys": ["Ctrl Shift ArrowDown"],
       "selector": ".jp-Notebook:focus"
     }
   ],
@@ -852,29 +852,12 @@
       "type": "boolean",
       "default": false
     },
-    "numberCellsToRenderDirectly": {
-      "title": "Number of cells to render directly",
-      "description": "Define the number of cells to render directly when virtual notebook intersection observer is available",
+    "overscanCount": {
+      "title": "Number of cells to render outside de the viewport",
+      "description": "In 'full' windowing mode, this is the number of cells above and below the viewport.",
       "type": "number",
-      "default": 20
-    },
-    "renderCellOnIdle": {
-      "title": "Render cell on browser idle time",
-      "description": "Defines if the placeholder cells should be rendered when the browser is idle",
-      "type": "boolean",
-      "default": true
-    },
-    "observedTopMargin": {
-      "title": "Observed top margin",
-      "description": "Defines the observed top margin for the virtual notebook, set a positive number of pixels to render cells above the visible view",
-      "type": "string",
-      "default": "1000px"
-    },
-    "observedBottomMargin": {
-      "title": "Observed bottom margin",
-      "description": "Defines the observed bottom margin for the virtual notebook, set a positive number of pixels to render cells below the visible view",
-      "type": "string",
-      "default": "1000px"
+      "default": 1,
+      "minimum": 1
     },
     "maxNumberOutputs": {
       "title": "The maximum number of output cells to be rendered in the output area.",
@@ -912,7 +895,7 @@
     "renderingLayout": {
       "title": "Rendering Layout",
       "description": "Global setting to define the rendering layout in notebooks. 'default' or 'side-by-side' are supported.",
-      "type": "string",
+      "enum": ["default", "side-by-side"],
       "default": "default"
     },
     "sideBySideLeftMarginOverride": {
@@ -926,6 +909,19 @@
       "description": "Side-by-side right margin override.",
       "type": "string",
       "default": "10px"
+    },
+    "sideBySideOutputRatio": {
+      "title": "Side-by-side output ratio",
+      "description": "For the side-by-side rendering, the side-by-side output ratio defines the width of the output vs the input. Set 1 for same size, > 1 for larger output, < 1 for smaller output.",
+      "type": "number",
+      "default": 1,
+      "minimum": 0
+    },
+    "windowingMode": {
+      "title": "Windowing mode",
+      "description": "'defer': Wait for idle CPU cycles to attach out of viewport cells - 'full': Attach to the DOM only cells in viewport - 'none': Attach all cells to the viewport",
+      "enum": ["defer", "full", "none"],
+      "default": "full"
     }
   },
   "additionalProperties": false,

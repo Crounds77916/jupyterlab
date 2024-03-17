@@ -12,10 +12,19 @@
       "path": "../codeeditor"
     },
     {
+      "path": "../codemirror"
+    },
+    {
       "path": "../coreutils"
     },
     {
       "path": "../docregistry"
+    },
+    {
+      "path": "../documentsearch"
+    },
+    {
+      "path": "../lsp"
     },
     {
       "path": "../nbformat"
@@ -33,10 +42,10 @@
       "path": "../settingregistry"
     },
     {
-      "path": "../shared-models"
+      "path": "../statusbar"
     },
     {
-      "path": "../statusbar"
+      "path": "../toc"
     },
     {
       "path": "../translation"

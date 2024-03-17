@@ -11,14 +11,29 @@ import React, { useEffect, useState } from 'react';
  */
 export interface IFilterBoxProps {
   /**
-   * A function to callback when filter is updated.
+   * Whether to use case-sensitive search
    */
-  updateFilter: (filterFn: (item: string) => boolean) => void;
+  caseSensitive?: boolean;
 
   /**
-   * Whether to use the fuzzy filter.
+   * Whether the search box is disabled or not.
    */
-  useFuzzyFilter: boolean;
+  disabled?: boolean;
+
+  /**
+   * Whether to force a refresh.
+   */
+  forceRefresh?: boolean;
+
+  /**
+   * An optional initial search value.
+   */
+  initialQuery?: string;
+
+  /**
+   * Pass a ref to the input element
+   */
+  inputRef?: React.RefObject<HTMLInputElement>;
 
   /**
    * Optional placeholder for the search box.
@@ -26,15 +41,23 @@ export interface IFilterBoxProps {
   placeholder?: string;
 
   /**
-   * Whether to force a refresh.
+   * A function to callback when filter is updated.
    */
-  forceRefresh?: boolean;
+  updateFilter: (
+    filterFn: (item: string) => Partial<IScore> | null,
+    query?: string
+  ) => void;
+
+  /**
+   * Whether to use the fuzzy filter.
+   */
+  useFuzzyFilter: boolean;
 }
 
 /**
  * A text match score with associated content item.
  */
-interface IScore {
+export interface IScore {
   /**
    * The numerical score for the text match.
    */
@@ -49,7 +72,7 @@ interface IScore {
 /**
  * Perform a fuzzy search on a single item.
  */
-function fuzzySearch(source: string, query: string): IScore | null {
+export function fuzzySearch(source: string, query: string): IScore | null {
   // Set up the match score and indices array.
   let score = Infinity;
   let indices: number[] | null = null;
@@ -96,16 +119,56 @@ function fuzzySearch(source: string, query: string): IScore | null {
   };
 }
 
-export const FilterBox = (props: IFilterBoxProps) => {
-  const [filter, setFilter] = useState('');
+export const updateFilterFunction = (
+  value: string,
+  useFuzzyFilter: boolean,
+  caseSensitive?: boolean
+) => {
+  return (item: string): Partial<IScore> | null => {
+    if (useFuzzyFilter) {
+      // Run the fuzzy search for the item and query.
+      const query = value.toLowerCase();
+      // Ignore the item if it is not a match.
+      return fuzzySearch(item, query);
+    }
+    if (!caseSensitive) {
+      item = item.toLocaleLowerCase();
+      value = value.toLocaleLowerCase();
+    }
+    const i = item.indexOf(value);
+    if (i === -1) {
+      return null;
+    }
+    return {
+      indices: [...Array(item.length).keys()].map(x => x + 1)
+    };
+  };
+};
+
+export const FilterBox = (props: IFilterBoxProps): JSX.Element => {
+  const [filter, setFilter] = useState(props.initialQuery ?? '');
 
   if (props.forceRefresh) {
     useEffect(() => {
       props.updateFilter((item: string) => {
-        return true;
+        return {};
       });
     }, []);
   }
+
+  useEffect(() => {
+    // If there is an initial search value, pass the parent the initial filter function for that value.
+    if (props.initialQuery !== undefined) {
+      props.updateFilter(
+        updateFilterFunction(
+          props.initialQuery,
+          props.useFuzzyFilter,
+          props.caseSensitive
+        ),
+        props.initialQuery
+      );
+    }
+  }, []);
 
   /**
    * Handler for search input changes.
@@ -113,32 +176,25 @@ export const FilterBox = (props: IFilterBoxProps) => {
   const handleChange = (e: React.FormEvent<HTMLElement>) => {
     const target = e.target as HTMLInputElement;
     setFilter(target.value);
-    props.updateFilter((item: string) => {
-      if (props.useFuzzyFilter) {
-        // Run the fuzzy search for the item and query.
-        const query = target.value.toLowerCase();
-        let score = fuzzySearch(item, query);
-        // Ignore the item if it is not a match.
-        if (!score) {
-          return false;
-        }
-        return true;
-      }
-      const i = item.indexOf(target.value);
-      if (i === -1) {
-        return false;
-      }
-      return true;
-    });
+    props.updateFilter(
+      updateFilterFunction(
+        target.value,
+        props.useFuzzyFilter,
+        props.caseSensitive
+      ),
+      target.value
+    );
   };
 
   return (
     <InputGroup
+      className="jp-FilterBox"
+      inputRef={props.inputRef}
       type="text"
+      disabled={props.disabled}
       rightIcon="ui-components:search"
       placeholder={props.placeholder}
       onChange={handleChange}
-      className="jp-FilterBox"
       value={filter}
     />
   );
@@ -154,6 +210,7 @@ export const FilenameSearcher = (props: IFilterBoxProps): ReactWidget => {
       useFuzzyFilter={props.useFuzzyFilter}
       placeholder={props.placeholder}
       forceRefresh={props.forceRefresh}
+      caseSensitive={props.caseSensitive}
     />
   );
 };

@@ -1,15 +1,14 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { MainAreaWidget } from '@jupyterlab/apputils';
+import { MainAreaWidget, setToolbar } from '@jupyterlab/apputils';
 import { CodeEditor } from '@jupyterlab/codeeditor';
 import { Mode } from '@jupyterlab/codemirror';
 import { IChangedArgs, PathExt } from '@jupyterlab/coreutils';
-import { IModelDB, IObservableList } from '@jupyterlab/observables';
+import { IObservableList } from '@jupyterlab/observables';
 import { Contents } from '@jupyterlab/services';
-import * as models from '@jupyterlab/shared-models';
+import { DocumentChange, FileChange, ISharedFile } from '@jupyter/ydoc';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
-import { findIndex, toArray } from '@lumino/algorithm';
 import { PartialJSONValue } from '@lumino/coreutils';
 import { ISignal, Signal } from '@lumino/signaling';
 import { Title, Widget } from '@lumino/widgets';
@@ -20,19 +19,16 @@ import { DocumentRegistry, IDocumentWidget } from './index';
  */
 export class DocumentModel
   extends CodeEditor.Model
-  implements DocumentRegistry.ICodeModel {
+  implements DocumentRegistry.ICodeModel
+{
   /**
    * Construct a new document model.
    */
-  constructor(languagePreference?: string, modelDB?: IModelDB) {
-    super({ modelDB });
+  constructor(languagePreference?: string, collaborationEnabled?: boolean) {
+    super();
     this._defaultLang = languagePreference || '';
-    const filemodel = new models.YFile() as models.ISharedFile;
-    this.switchSharedModel(filemodel, true);
-    this.value.changed.connect(this.triggerContentChange, this);
-
-    (this.sharedModel as models.YFile).dirty = false;
     this.sharedModel.changed.connect(this._onStateChanged, this);
+    this._collaborationEnabled = !!collaborationEnabled;
   }
 
   /**
@@ -53,13 +49,19 @@ export class DocumentModel
    * The dirty state of the document.
    */
   get dirty(): boolean {
-    return this.sharedModel.dirty;
+    return this._dirty;
   }
   set dirty(newValue: boolean) {
-    if (newValue === this.dirty) {
+    const oldValue = this._dirty;
+    if (newValue === oldValue) {
       return;
     }
-    (this.sharedModel as models.YFile).dirty = newValue;
+    this._dirty = newValue;
+    this.triggerStateChange({
+      name: 'dirty',
+      oldValue,
+      newValue
+    });
   }
 
   /**
@@ -98,10 +100,17 @@ export class DocumentModel
   }
 
   /**
+   * Whether the model is collaborative or not.
+   */
+  get collaborative(): boolean {
+    return this._collaborationEnabled;
+  }
+
+  /**
    * Serialize the model to a string.
    */
   toString(): string {
-    return this.value.text;
+    return this.sharedModel.getSource();
   }
 
   /**
@@ -111,14 +120,14 @@ export class DocumentModel
    * Should emit a [contentChanged] signal.
    */
   fromString(value: string): void {
-    this.value.text = value;
+    this.sharedModel.setSource(value);
   }
 
   /**
    * Serialize the model to JSON.
    */
   toJSON(): PartialJSONValue {
-    return JSON.parse(this.value.text || 'null');
+    return JSON.parse(this.sharedModel.getSource() || 'null');
   }
 
   /**
@@ -153,14 +162,23 @@ export class DocumentModel
     this.dirty = true;
   }
 
-  private _onStateChanged(
-    sender: models.ISharedFile,
-    changes: models.NotebookChange
-  ): void {
+  private _onStateChanged(sender: ISharedFile, changes: DocumentChange): void {
+    if ((changes as FileChange).sourceChange) {
+      this.triggerContentChange();
+    }
     if (changes.stateChange) {
       changes.stateChange.forEach(value => {
-        if (value.name !== 'dirty' || value.oldValue !== value.newValue) {
-          this.triggerStateChange(value);
+        if (value.name === 'dirty') {
+          // Setting `dirty` will trigger the state change.
+          // We always set `dirty` because the shared model state
+          // and the local attribute are synchronized one way shared model -> _dirty
+          this.dirty = value.newValue;
+        } else if (value.oldValue !== value.newValue) {
+          this.triggerStateChange({
+            newValue: undefined,
+            oldValue: undefined,
+            ...value
+          });
         }
       });
     }
@@ -169,11 +187,13 @@ export class DocumentModel
   /**
    * The shared notebook model.
    */
-  readonly sharedModel: models.ISharedFile;
+  readonly sharedModel: ISharedFile;
   private _defaultLang = '';
+  private _dirty = false;
   private _readOnly = false;
   private _contentChanged = new Signal<this, void>(this);
   private _stateChanged = new Signal<this, IChangedArgs<any>>(this);
+  private _collaborationEnabled: boolean;
 }
 
 /**
@@ -234,10 +254,9 @@ export class TextModelFactory implements DocumentRegistry.CodeModelFactory {
    */
   createNew(
     languagePreference?: string,
-    modelDB?: IModelDB,
-    isInitialized?: boolean
+    collaborationEnabled?: boolean
   ): DocumentRegistry.ICodeModel {
-    return new DocumentModel(languagePreference, modelDB);
+    return new DocumentModel(languagePreference, collaborationEnabled);
   }
 
   /**
@@ -245,7 +264,7 @@ export class TextModelFactory implements DocumentRegistry.CodeModelFactory {
    */
   preferredLanguage(path: string): string {
     const mode = Mode.findByFileName(path);
-    return mode && mode.mode;
+    return mode?.name ?? '';
   }
 
   private _isDisposed = false;
@@ -291,7 +310,8 @@ export class Base64ModelFactory extends TextModelFactory {
 export abstract class ABCWidgetFactory<
   T extends IDocumentWidget,
   U extends DocumentRegistry.IModel = DocumentRegistry.IModel
-> implements DocumentRegistry.IWidgetFactory<T, U> {
+> implements DocumentRegistry.IWidgetFactory<T, U>
+{
   /**
    * Construct a new `ABCWidgetFactory`.
    */
@@ -428,85 +448,11 @@ export abstract class ABCWidgetFactory<
     // Create the new widget
     const widget = this.createNewWidget(context, source);
 
-    // Add toolbar items
-    const items:
-      | DocumentRegistry.IToolbarItem[]
-      | IObservableList<DocumentRegistry.IToolbarItem> = (
-      this._toolbarFactory?.bind(this) ?? this.defaultToolbarFactory.bind(this)
-    )(widget);
-
-    if (Array.isArray(items)) {
-      items.forEach(({ name, widget: item }) => {
-        widget.toolbar.addItem(name, item);
-      });
-    } else {
-      const updateToolbar = (
-        list: IObservableList<DocumentRegistry.IToolbarItem>,
-        changes: IObservableList.IChangedArgs<DocumentRegistry.IToolbarItem>
-      ) => {
-        switch (changes.type) {
-          case 'add':
-            changes.newValues.forEach((item, index) => {
-              widget.toolbar.insertItem(
-                changes.newIndex + index,
-                item.name,
-                item.widget
-              );
-            });
-            break;
-          case 'move':
-            changes.oldValues.forEach(item => {
-              item.widget.parent = null;
-            });
-            changes.newValues.forEach((item, index) => {
-              widget.toolbar.insertItem(
-                changes.newIndex + index,
-                item.name,
-                item.widget
-              );
-            });
-            break;
-          case 'remove':
-            changes.oldValues.forEach(item => {
-              item.widget.parent = null;
-            });
-            break;
-          case 'set':
-            changes.oldValues.forEach(item => {
-              item.widget.parent = null;
-            });
-
-            changes.newValues.forEach((item, index) => {
-              const existingIndex = findIndex(
-                widget.toolbar.names(),
-                name => item.name === name
-              );
-              if (existingIndex >= 0) {
-                toArray(widget.toolbar.children())[existingIndex].parent = null;
-              }
-
-              widget.toolbar.insertItem(
-                changes.newIndex + index,
-                item.name,
-                item.widget
-              );
-            });
-            break;
-        }
-      };
-
-      updateToolbar(items, {
-        newIndex: 0,
-        newValues: toArray(items),
-        oldIndex: 0,
-        oldValues: [],
-        type: 'add'
-      });
-      items.changed.connect(updateToolbar);
-      widget.disposed.connect(() => {
-        items.changed.disconnect(updateToolbar);
-      });
-    }
+    // Add toolbar
+    setToolbar(
+      widget,
+      this._toolbarFactory ?? this.defaultToolbarFactory.bind(this)
+    );
 
     // Emit widget created signal
     this._widgetCreated.emit(widget);
@@ -566,7 +512,8 @@ export class DocumentWidget<
     U extends DocumentRegistry.IModel = DocumentRegistry.IModel
   >
   extends MainAreaWidget<T>
-  implements IDocumentWidget<T, U> {
+  implements IDocumentWidget<T, U>
+{
   constructor(options: DocumentWidget.IOptions<T, U>) {
     // Include the context ready promise in the widget reveal promise
     options.reveal = Promise.all([options.reveal, options.context.ready]);
@@ -601,7 +548,9 @@ export class DocumentWidget<
   private async _onTitleChanged(_sender: Title<this>) {
     const validNameExp = /[\/\\:]/;
     const name = this.title.label;
-    const filename = this.context.path.split('/').pop()!;
+    // Use localPath to avoid the drive name
+    const filename =
+      this.context.localPath.split('/').pop() || this.context.localPath;
 
     if (name === filename) {
       return;
@@ -626,6 +575,8 @@ export class DocumentWidget<
     path: string
   ): void {
     this.title.label = PathExt.basename(sender.localPath);
+    // The document is not untitled any more.
+    this.isUntitled = false;
   }
 
   /**
@@ -655,6 +606,15 @@ export class DocumentWidget<
   }
 
   readonly context: DocumentRegistry.IContext<U>;
+
+  /**
+   * Whether the document has an auto-generated name or not.
+   *
+   * #### Notes
+   * A document has auto-generated name if its name is untitled and up
+   * to the instant the user saves it manually for the first time.
+   */
+  isUntitled?: boolean;
 }
 
 export namespace DocumentWidget {

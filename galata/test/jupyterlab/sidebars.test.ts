@@ -1,8 +1,7 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { galata, test } from '@jupyterlab/galata';
-import { expect } from '@playwright/test';
+import { expect, galata, test } from '@jupyterlab/galata';
 
 const sidebarIds: galata.SidebarTabId[] = [
   'filebrowser',
@@ -25,6 +24,35 @@ test.describe('Sidebars', () => {
         imageName.toLowerCase()
       );
     });
+  });
+
+  test('File Browser has no unused rules', async ({ page }) => {
+    await page.sidebar.openTab('filebrowser');
+    const contextmenu = await page.menu.openContextMenu(
+      '.jp-DirListing-headerItem'
+    );
+    const item = await page.menu.getMenuItemInMenu(
+      contextmenu,
+      'Show File Checkboxes'
+    );
+    await item.click();
+    await page.notebook.createNew('notebook.ipynb');
+
+    const unusedRules = await page.style.findUnusedStyleRules({
+      page,
+      fragments: ['jp-DirListing', 'jp-FileBrowser'],
+      exclude: [
+        // active during renaming
+        'jp-DirListing-editor',
+        // hidden files
+        '[data-is-dot]',
+        // filtering results
+        '.jp-DirListing-content mark',
+        // only added after resizing
+        'jp-DirListing-narrow'
+      ]
+    });
+    expect(unusedRules.length).toEqual(0);
   });
 
   test('Toggle Light theme', async ({ page }) => {

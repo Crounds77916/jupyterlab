@@ -1,3 +1,6 @@
+.. Copyright (c) Jupyter Development Team.
+.. Distributed under the terms of the Modified BSD License.
+
 .. _developer-extension-points:
 
 Common Extension Points
@@ -11,7 +14,7 @@ Following the list of core tokens is a guide for using some of JupyterLab's most
 However, it is not an exhaustive account of how to extend the application components,
 and more detailed descriptions of their public APIs may be found in the
 `JupyterLab <../api/index.html>`__ and
-`Lumino <https://jupyterlab.github.io/lumino/index.html>`__ API documentation.
+`Lumino <https://lumino.readthedocs.io/>`__ API documentation.
 
 .. contents:: Table of contents
     :local:
@@ -126,9 +129,10 @@ might want to use the services in your extensions.
   created by the application.
 - ``@jupyterlab/tooltip:ITooltipManager``: A service for the tooltip manager for the application.
   Use this to allow your extension to invoke a tooltip.
-- ``@jupyterlab/user:ICurrentUser``: A service for the current user information.
+- ``@jupyterlab/collaboration:IGlobalAwareness``: A service for the global awareness, providing information about other collaborators.
+- ``@jupyterlab/collaboration:ICurrentUser``: A service for the current user information.
   Use this if you want to access to the identity of the current connected user.
-- ``@jupyterlab/user:IUserMenu``: A service for the user menu on the application.
+- ``@jupyterlab/collaboration:IUserMenu``: A service for the user menu on the application.
   Use this if you want to add new items to the user menu.
 - ``@jupyterlab/vdom:IVDOMTracker``: A widget tracker for virtual DOM (VDOM) documents.
   Use this to iterate over and interact with VDOM document instances created by the application.
@@ -183,7 +187,7 @@ a string value or a function that returns a string value.
 
 There are several more options which can be passed into the command registry when
 adding new commands. These are documented
-`here <https://jupyterlab.github.io/lumino/commands/interfaces/commandregistry.icommandoptions.html>`__.
+`here <https://lumino.readthedocs.io/en/latest/api/interfaces/commands.CommandRegistry.ICommandOptions.html>`__.
 
 After a command has been added to the application command registry
 you can add them to various places in the application user interface,
@@ -272,7 +276,7 @@ where ``menuItem`` definition is:
 
 
 The same example using the API is shown below. See the Lumino `docs
-<https://jupyterlab.github.io/lumino/widgets/interfaces/contextmenu.iitemoptions.html>`__
+<https://lumino.readthedocs.io/en/latest/api/interfaces/widgets.ContextMenu.IItemOptions.html>`__
 for the item creation options.
 
 .. code:: typescript
@@ -304,7 +308,7 @@ Alternatively, you can use a 'contextmenu' event listener and
 call ``event.stopPropagation`` to prevent the application context menu
 handler from being called (it is listening in the bubble phase on the
 ``document``). At this point you could show your own Lumino
-`contextMenu <https://jupyterlab.github.io/lumino/widgets/classes/contextmenu.html>`__,
+`contextMenu <https://lumino.readthedocs.io/en/latest/api/modules/widgets.ContextMenu.html>`__,
 or simply stop propagation and let the system context menu be shown.
 This would look something like the following in a ``Widget`` subclass:
 
@@ -362,7 +366,7 @@ browser supports overriding the behavior of this item.
        },
        isVisible: () =>
          tracker.currentWidget &&
-         toArray(tracker.currentWidget.selectedItems()).length === 1,
+         Array.from(tracker.currentWidget.selectedItems()).length === 1,
        iconClass: 'jp-MaterialIcon jp-LinkIcon',
        label: 'Copy Shareable Link'
      });
@@ -405,7 +409,7 @@ the shortcut handler propagates up the DOM tree from the focused element
 and tests each element against the registered selectors. If a match is found,
 then that command is executed with the provided ``args``.
 Full documentation for the options for ``addKeyBinding`` can be found
-`here <https://jupyterlab.github.io/lumino/commands/interfaces/commandregistry.ikeybindingoptions.html>`__.
+`here <https://lumino.readthedocs.io/en/latest/api/interfaces/commands.CommandRegistry.IKeyBindingOptions.html>`__.
 
 JupyterLab also provides integration with its settings system for keyboard shortcuts.
 Your extension can provide a settings schema with a ``jupyter.lab.shortcuts`` key,
@@ -492,19 +496,18 @@ Top Area
 ^^^^^^^^
 
 The top area is intended to host most persistent user interface elements that span the whole session of a user.
-JupyterLab adds a user dropdown to that area when started in ``collaborative`` mode.
+A toolbar named **TopBar** is available on the right of the main menu bar. For example, JupyterLab adds a user
+dropdown to that toolbar when started in ``collaborative`` mode.
 
-You can use a numeric rank to control the ordering of top area widgets:
+See :ref:`generic toolbars <generic-toolbar>` to see how to add a toolbar or a custom widget to a toolbar.
 
-.. code:: typescript
+You can use a numeric rank to control the ordering of top bar items in the settings; see :ref:`Toolbar definitions <toolbar-settings-definition>`.
 
-  app.shell.add(widget, 'top', { rank: 100 });
-
-JupyterLab adds a spacer widget to the top area at rank ``900`` by default.
+JupyterLab adds a spacer widget to the top bar at rank ``50`` by default.
 You can then use the following guidelines to place your items:
 
-* ``rank <= 900`` to place items to the left side of the top area
-* ``rank > 900`` to place items to the right side of the top area
+* ``rank <= 50`` to place items to the left side in the top bar
+* ``rank > 50`` to place items to the right side in the top bar
 
 Left/Right Areas
 ^^^^^^^^^^^^^^^^
@@ -652,7 +655,7 @@ Adding a New Menu
 ~~~~~~~~~~~~~~~~~
 
 To add a new menu to the menu bar, you need to create a new
-`Lumino menu <https://jupyterlab.github.io/lumino/widgets/classes/menu.html>`__.
+`Lumino menu <https://lumino.readthedocs.io/en/latest/api/classes/widgets.Menu-1.html>`__.
 
 You can then add commands to the menu in a similar way to the command palette,
 and add that menu to the main menu bar:
@@ -778,9 +781,14 @@ When the ``labStatus`` busy state changes, we update the text content of the
 Toolbar Registry
 ----------------
 
-JupyterLab provides an infrastructure to define and customize toolbar widgets of ``DocumentWidget`` s
+JupyterLab provides an infrastructure to define and customize toolbar widgets
 from the settings, which is similar to that defining the context menu and the main menu
-bar. A typical example is the notebook toolbar as in the snippet below:
+bar.
+
+Document Widgets
+^^^^^^^^^^^^^^^^
+
+A typical example is the notebook toolbar as in the snippet below:
 
 .. code:: typescript
 
@@ -840,6 +848,8 @@ toolbar definition from the settings and build the factory to pass to the widget
 The default toolbar items can be defined across multiple extensions by providing an entry in the ``"jupyter.lab.toolbars"``
 mapping. For example for the notebook panel:
 
+.. _toolbar-settings-definition:
+
 .. code:: js
 
    "jupyter.lab.toolbars": {
@@ -898,15 +908,70 @@ providing a different rank or adding ``"disabled": true`` to remove the item).
 The current widget factories supporting the toolbar customization are:
 
 - ``Notebook``: Notebook panel toolbar
+- ``Cell``: Cell toolbar
 - ``Editor``: Text editor toolbar
 - ``HTML Viewer``: HTML Viewer toolbar
 - ``CSVTable``: CSV (Comma Separated Value) Viewer toolbar
 - ``TSVTable``: TSV (Tabulation Separated Value) Viewer toolbar
 
+.. _toolbar-item:
+
 And the toolbar item must follow this definition:
 
 .. literalinclude:: ../snippets/packages/settingregistry/src/toolbarItem.json
    :language: json
+
+.. _generic-toolbar:
+
+Generic Widget with Toolbar
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The logic detailed in the previous section can be used to customize any widgets with a toolbar.
+
+The additional keys used in ``jupyter.lab.toolbars`` settings attributes are:
+
+- ``Cell``: Cell toolbar
+- ``FileBrowser``: Default file browser panel toolbar items
+- ``TopBar``: Top area toolbar (right of the main menu bar)
+
+Here is an example for enabling a toolbar on a widget:
+
+.. code:: typescript
+
+   function activatePlugin(
+     app: JupyterFrontEnd,
+     // ...
+     toolbarRegistry: IToolbarWidgetRegistry,
+     settingRegistry: ISettingRegistry
+   ): void {
+
+     const browser = new FileBrowser();
+
+     // Toolbar
+     // - Define a custom toolbar item
+     toolbarRegistry.registerFactory(
+       'FileBrowser', // Factory name
+       'uploader',
+       (browser: FileBrowser) =>
+         new Uploader({ model: browser.model, translator })
+     );
+
+     // - Link the widget toolbar and its definition from the settings
+     setToolbar(
+       browser, // This widget is the one passed to the toolbar item factory
+       createToolbarFactory(
+         toolbarRegistry,
+         settings,
+         'FileBrowser', // Factory name
+         plugin.id,
+         translator
+       ),
+       // You can explicitly pass the toolbar widget if it is not accessible as `toolbar` attribute
+       // toolbar,
+     );
+
+See :ref:`Toolbar definitions <toolbar-settings-definition>` example on how to define the toolbar
+items in the settings.
 
 .. _widget-tracker:
 
@@ -965,3 +1030,38 @@ a plugin:
         return foo;
       }
     };
+
+LSP Features
+--------------
+
+JupyterLab provides an infrastructure to communicate with the language servers. If the LSP services are activated and users have language servers installed, JupyterLab will start the language servers for the language of the opened notebook or file. Extension authors can access the virtual documents and the associated LSP connection of opened document by requiring the ``ILSPDocumentConnectionManager`` token from ``@jupyterlab/lsp``.
+
+Here is an example for making requests to the language server.
+
+.. code:: typescript
+
+  const plugin: JupyterFrontEndPlugin<void> = {
+    id,
+    autoStart: true,
+    requires: [ILSPDocumentConnectionManager],
+    activate: async (app: JupyterFrontEnd, manager: ILSPDocumentConnectionManager): Promise<void> => {
+
+      // Get the path to the opened notebook of file
+      const path = ...
+
+      // Get the widget adapter of opened document
+      const adapter = manager.adapters.get(path);
+      if (!adapter) {
+        return
+      }
+      // Get the associated virtual document of the opened document
+      const virtualDocument = adapter.virtualDocument;
+
+      // Get the LSP connection of the virtual document.
+      const connection = manager.connections.get(document.uri);
+      ...
+      // Send completion request to the language server
+      const response = await connection.clientRequests['textDocument/completion'].request(params);
+      ...
+    }
+  };

@@ -1,4 +1,7 @@
-import { IObservableString } from '@jupyterlab/observables';
+// Copyright (c) Jupyter Development Team.
+// Distributed under the terms of the Modified BSD License.
+
+import { SourceChange } from '@jupyter/ydoc';
 import { CompletionHandler } from './handler';
 import {
   ICompletionContext,
@@ -36,7 +39,8 @@ export class ConnectorProxy implements IConnectorProxy {
     request: CompletionHandler.IRequest
   ): Promise<Array<CompletionHandler.ICompletionItemsReply | null>> {
     const current = ++this._fetching;
-    let promises: Promise<CompletionHandler.ICompletionItemsReply | null>[] = [];
+    let promises: Promise<CompletionHandler.ICompletionItemsReply | null>[] =
+      [];
     for (const provider of this._providers) {
       let promise: Promise<CompletionHandler.ICompletionItemsReply | null>;
       promise = provider.fetch(request, this._context).then(reply => {
@@ -50,11 +54,10 @@ export class ConnectorProxy implements IConnectorProxy {
         return { ...reply, items };
       });
 
-      const timeoutPromise = new Promise<CompletionHandler.ICompletionItemsReply | null>(
-        resolve => {
+      const timeoutPromise =
+        new Promise<CompletionHandler.ICompletionItemsReply | null>(resolve => {
           return setTimeout(() => resolve(null), this._timeout);
-        }
-      );
+        });
       promise = Promise.race([promise, timeoutPromise]);
       promises.push(promise);
     }
@@ -72,7 +75,7 @@ export class ConnectorProxy implements IConnectorProxy {
    */
   public shouldShowContinuousHint(
     completerIsVisible: boolean,
-    changed: IObservableString.IChangedArgs
+    changed: SourceChange
   ): boolean {
     if (this._providers[0].shouldShowContinuousHint) {
       return this._providers[0].shouldShowContinuousHint(
@@ -85,12 +88,14 @@ export class ConnectorProxy implements IConnectorProxy {
 
   private _defaultShouldShowContinuousHint(
     completerIsVisible: boolean,
-    changed: IObservableString.IChangedArgs
+    changed: SourceChange
   ): boolean {
     return (
       !completerIsVisible &&
-      changed.type !== 'remove' &&
-      changed.value.trim().length > 0
+      (changed.sourceChange == null ||
+        changed.sourceChange.some(
+          delta => delta.insert != null && delta.insert.length > 0
+        ))
     );
   }
 

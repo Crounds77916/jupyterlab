@@ -204,7 +204,7 @@ namespace Private {
       // Save a file's contents as a workspace and navigate to that workspace.
       void context.ready.then(async () => {
         const file = context.model;
-        const workspace = (file.toJSON() as unknown) as Workspace.IWorkspace;
+        const workspace = file.toJSON() as unknown as Workspace.IWorkspace;
         const path = context.path;
         const id = workspace.metadata.id;
 
@@ -272,7 +272,7 @@ namespace Private {
     const result = await showDialog({
       title: trans.__('Save Current Workspace As…'),
       body: new SaveWidget(defaultPath),
-      buttons: [Dialog.cancelButton({ label: trans.__('Cancel') }), saveBtn]
+      buttons: [Dialog.cancelButton(), saveBtn]
     });
     if (result.button.label === trans.__('Save')) {
       return result.value;

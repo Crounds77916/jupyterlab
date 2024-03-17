@@ -1,6 +1,7 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
+import { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import { UUID } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
 import { ElementAttrs, VirtualElement, VirtualNode } from '@lumino/virtualdom';
@@ -90,7 +91,7 @@ export class LabIcon implements LabIcon.ILabIcon, VirtualElement.IRenderer {
    * @param iconClass - optional, if the icon arg is not set, the iconClass arg
    * should be a CSS class associated with an existing CSS background-image
    *
-   * @deprecated fallback - don't use, optional, a LabIcon instance that will
+   * @param fallback - DEPRECATED, optional, a LabIcon instance that will
    * be used if neither icon nor iconClass are defined
    *
    * @param props - any additional args are passed though to the element method
@@ -132,7 +133,7 @@ export class LabIcon implements LabIcon.ILabIcon, VirtualElement.IRenderer {
    * @param iconClass - optional, if the icon arg is not set, the iconClass arg
    * should be a CSS class associated with an existing CSS background-image
    *
-   * @deprecated fallback - don't use, optional, a LabIcon instance that will
+   * @param fallback - DEPRECATED, optional, a LabIcon instance that will
    * be used if neither icon nor iconClass are defined
    *
    * @param props - any additional args are passed though to the React component
@@ -237,10 +238,11 @@ export class LabIcon implements LabIcon.ILabIcon, VirtualElement.IRenderer {
         return icon;
       } else {
         // already loaded icon svg exists; replace it and warn
-        // TODO: need to see if this warning is useful or just noisy
-        console.warn(
-          `Redefining previously loaded icon svgstr. name: ${name}, svgstrOld: ${icon.svgstr}, svgstr: ${svgstr}`
-        );
+        if (LabIcon._debug) {
+          console.warn(
+            `Redefining previously loaded icon svgstr. name: ${name}, svgstrOld: ${icon.svgstr}, svgstr: ${svgstr}`
+          );
+        }
         icon.svgstr = svgstr;
         return icon;
       }
@@ -494,10 +496,12 @@ export class LabIcon implements LabIcon.ILabIcon, VirtualElement.IRenderer {
         } else {
           return (
             <Tag
-              className={classes(
-                className,
-                LabIconStyle.styleClass(styleProps)
-              )}
+              className={
+                className || styleProps
+                  ? classes(className, LabIconStyle.styleClass(styleProps))
+                  : undefined
+              }
+              title={title}
             >
               {svgComponent}
               {label}
@@ -621,20 +625,7 @@ export namespace LabIcon {
   /**
    * The simplest possible interface for defining a generic icon.
    */
-  export interface IIcon {
-    /**
-     * The name of the icon. By convention, the icon name will be namespaced
-     * as so:
-     *
-     *     "pkg-name:icon-name"
-     */
-    readonly name: string;
-
-    /**
-     * A string containing the raw contents of an svg file.
-     */
-    svgstr: string;
-  }
+  export interface IIcon extends IRenderMime.LabIcon.IIcon {}
 
   export interface IRendererOptions {
     attrs?: ElementAttrs;
@@ -701,9 +692,7 @@ export namespace LabIcon {
   /**
    * A type that can be resolved to a LabIcon instance.
    */
-  export type IResolvable =
-    | string
-    | (IIcon & Partial<VirtualElement.IRenderer>);
+  export type IResolvable = IRenderMime.LabIcon.IResolvable;
 
   /**
    * A type that maybe can be resolved to a LabIcon instance.

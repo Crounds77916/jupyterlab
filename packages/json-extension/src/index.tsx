@@ -30,7 +30,8 @@ export const MIME_TYPE = 'application/json';
  */
 export class RenderedJSON
   extends Widget
-  implements IRenderMime.IRenderer, Printing.IPrintable {
+  implements IRenderMime.IRenderer, Printing.IPrintable
+{
   /**
    * Create a new widget for rendering JSON.
    */
@@ -38,7 +39,6 @@ export class RenderedJSON
     super();
     this.addClass(CSS_CLASS);
     this.addClass('CodeMirror');
-    this.addClass('cm-s-jupyter');
     this._mimeType = options.mimeType;
     this.translator = options.translator || nullTranslator;
   }

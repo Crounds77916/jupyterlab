@@ -37,7 +37,11 @@ import {
 import { ISettingRegistry, SettingRegistry } from '@jupyterlab/settingregistry';
 import { IStateDB } from '@jupyterlab/statedb';
 import { IStatusBar } from '@jupyterlab/statusbar';
-import { ITranslator, TranslationBundle } from '@jupyterlab/translation';
+import {
+  ITranslator,
+  nullTranslator,
+  TranslationBundle
+} from '@jupyterlab/translation';
 import {
   buildIcon,
   ContextMenuSvg,
@@ -45,12 +49,17 @@ import {
   RankedMenu,
   Switch
 } from '@jupyterlab/ui-components';
-import { each, iter, toArray } from '@lumino/algorithm';
-import { JSONExt, PromiseDelegate } from '@lumino/coreutils';
+import { find, some } from '@lumino/algorithm';
+import {
+  JSONExt,
+  PromiseDelegate,
+  ReadonlyPartialJSONValue
+} from '@lumino/coreutils';
 import { CommandRegistry } from '@lumino/commands';
 import { DisposableDelegate, DisposableSet } from '@lumino/disposable';
 import { DockLayout, DockPanel, Widget } from '@lumino/widgets';
 import * as React from 'react';
+import { topbar } from './topbar';
 
 /**
  * Default context menu item rank
@@ -138,15 +147,10 @@ const mainCommands: JupyterFrontEndPlugin<void> = {
         return shell.currentWidget;
       }
 
-      const matches = toArray(shell.widgets('main')).filter(
-        widget => widget.id === node.dataset.id
+      return (
+        find(shell.widgets('main'), widget => widget.id === node.dataset.id) ||
+        shell.currentWidget
       );
-
-      if (matches.length < 1) {
-        return shell.currentWidget;
-      }
-
-      return matches[0];
     };
 
     // Closes an array of widgets.
@@ -159,26 +163,18 @@ const mainCommands: JupyterFrontEndPlugin<void> = {
       area: DockLayout.AreaConfig,
       widget: Widget
     ): DockLayout.ITabAreaConfig | null => {
-      switch (area.type) {
-        case 'split-area': {
-          const iterator = iter(area.children);
-          let tab: DockLayout.ITabAreaConfig | null = null;
-          let value: DockLayout.AreaConfig | undefined;
-          do {
-            value = iterator.next();
-            if (value) {
-              tab = findTab(value, widget);
-            }
-          } while (!tab && value);
-          return tab;
-        }
-        case 'tab-area': {
-          const { id } = widget;
-          return area.widgets.some(widget => widget.id === id) ? area : null;
-        }
-        default:
-          return null;
+      if (area.type === 'tab-area') {
+        return area.widgets.includes(widget) ? area : null;
       }
+      if (area.type === 'split-area') {
+        for (const child of area.children) {
+          const found = findTab(child, widget);
+          if (found) {
+            return found;
+          }
+        }
+      }
+      return null;
     };
 
     // Find the tab area for a widget within the main dock area.
@@ -189,10 +185,7 @@ const mainCommands: JupyterFrontEndPlugin<void> = {
         return null;
       }
       const area = mainArea.dock?.main;
-      if (!area) {
-        return null;
-      }
-      return findTab(area, widget);
+      return area ? findTab(area, widget) : null;
     };
 
     // Returns an array of all widgets to the right of a widget in a tab area.
@@ -225,8 +218,7 @@ const mainCommands: JupyterFrontEndPlugin<void> = {
       label: () => trans.__('Close All Other Tabs'),
       isEnabled: () => {
         // Ensure there are at least two widgets.
-        const iterator = shell.widgets('main');
-        return !!iterator.next() && !!iterator.next();
+        return some(shell.widgets('main'), (_, i) => i === 1);
       },
       execute: () => {
         const widget = contextMenuWidget();
@@ -234,10 +226,11 @@ const mainCommands: JupyterFrontEndPlugin<void> = {
           return;
         }
         const { id } = widget;
-        const otherWidgets = toArray(shell.widgets('main')).filter(
-          widget => widget.id !== id
-        );
-        closeWidgets(otherWidgets);
+        for (const widget of shell.widgets('main')) {
+          if (widget.id !== id) {
+            widget.close();
+          }
+        }
       }
     });
 
@@ -366,6 +359,13 @@ const mainCommands: JupyterFrontEndPlugin<void> = {
       });
 
       commands.addCommand(CommandIDs.setMode, {
+        label: args =>
+          args['mode']
+            ? trans.__('Set %1 mode.', args['mode'])
+            : trans.__('Set the layout `mode`.'),
+        caption: trans.__(
+          'The layout `mode` can be "single-document" or "multiple-document".'
+        ),
         isVisible: args => {
           const mode = args['mode'] as string;
           return mode === 'single-document' || mode === 'multiple-document';
@@ -496,7 +496,7 @@ const main: JupyterFrontEndPlugin<ITreePathUpdater> = {
 
     function updateTreePath(treePath: string) {
       // Wait for tree resolver to finish before updating the path because it use the PageConfig['treePath']
-      treeResolver.paths.then(() => {
+      void treeResolver.paths.then(() => {
         _defaultBrowserTreePath = treePath;
         if (!_docTreePath) {
           const url = PageConfig.getUrl({ treePath });
@@ -543,7 +543,7 @@ const main: JupyterFrontEndPlugin<ITreePathUpdater> = {
     });
 
     // Wait for tree resolver to finish before updating the path because it use the PageConfig['treePath']
-    treeResolver.paths.then(() => {
+    void treeResolver.paths.then(() => {
       // Watch the path of the current widget in the main area and update the page
       // URL to reflect the change.
       app.shell.currentPathChanged.connect((_, args) => {
@@ -720,36 +720,82 @@ const dirty: JupyterFrontEndPlugin<void> = {
  */
 const layout: JupyterFrontEndPlugin<ILayoutRestorer> = {
   id: '@jupyterlab/application-extension:layout',
-  requires: [IStateDB, ILabShell, ISettingRegistry, ITranslator],
+  requires: [IStateDB, ILabShell, ISettingRegistry],
+  optional: [ITranslator],
   activate: (
     app: JupyterFrontEnd,
     state: IStateDB,
     labShell: ILabShell,
     settingRegistry: ISettingRegistry,
-    translator: ITranslator
+    translator: ITranslator | null
   ) => {
+    const trans = (translator ?? nullTranslator).load('jupyterlab');
     const first = app.started;
     const registry = app.commands;
-    const restorer = new LayoutRestorer({ connector: state, first, registry });
 
-    void restorer.fetch().then(saved => {
-      labShell.restoreLayout(
-        PageConfig.getOption('mode') as DockPanel.Mode,
-        saved
-      );
-      labShell.layoutModified.connect(() => {
-        void restorer.save(labShell.saveLayout());
-      });
-      Private.activateSidebarSwitcher(
-        app,
-        labShell,
-        settingRegistry,
-        translator,
-        saved
-      );
+    const mode = PageConfig.getOption('mode') as DockPanel.Mode;
+    const restorer = new LayoutRestorer({
+      connector: state,
+      first,
+      registry,
+      mode
     });
+    settingRegistry
+      .load(shell.id)
+      .then(settings => {
+        // Add a layer of customization to support app shell mode
+        const customizedLayout = settings.composite['layout'] as any;
+
+        // Restore the layout.
+        void labShell
+          .restoreLayout(mode, restorer, {
+            'multiple-document': customizedLayout.multiple ?? {},
+            'single-document': customizedLayout.single ?? {}
+          })
+          .then(() => {
+            labShell.layoutModified.connect(() => {
+              void restorer.save(labShell.saveLayout());
+            });
+
+            settings.changed.connect(onSettingsChanged);
+            Private.activateSidebarSwitcher(app, labShell, settings, trans);
+          });
+      })
+      .catch(reason => {
+        console.error('Fail to load settings for the layout restorer.');
+        console.error(reason);
+      });
 
     return restorer;
+
+    async function onSettingsChanged(
+      settings: ISettingRegistry.ISettings
+    ): Promise<void> {
+      if (
+        !JSONExt.deepEqual(
+          settings.composite['layout'] as ReadonlyPartialJSONValue,
+          {
+            single: labShell.userLayout['single-document'],
+            multiple: labShell.userLayout['multiple-document']
+          } as any
+        )
+      ) {
+        const result = await showDialog({
+          title: trans.__('Information'),
+          body: trans.__(
+            'User layout customization has changed. You may need to reload JupyterLab to see the changes.'
+          ),
+          buttons: [
+            Dialog.cancelButton(),
+            Dialog.okButton({ label: trans.__('Reload') })
+          ]
+        });
+
+        if (result.button.accept) {
+          location.reload();
+        }
+      }
+    }
   },
   autoStart: true,
   provides: ILayoutRestorer
@@ -928,7 +974,7 @@ const shell: JupyterFrontEndPlugin<ILabShell> = {
       throw new Error(`${shell.id} did not find a LabShell instance.`);
     }
     if (settingRegistry) {
-      settingRegistry.load(shell.id).then(settings => {
+      void settingRegistry.load(shell.id).then(settings => {
         (app.shell as LabShell).updateConfig(settings.composite);
         settings.changed.connect(() => {
           (app.shell as LabShell).updateConfig(settings.composite);
@@ -1015,7 +1061,7 @@ const propertyInspector: JupyterFrontEndPlugin<IPropertyInspectorProvider> = {
     widget.title.icon = buildIcon;
     widget.title.caption = trans.__('Property Inspector');
     widget.id = 'jp-property-inspector';
-    labshell.add(widget, 'right', { rank: 100 });
+    labshell.add(widget, 'right', { rank: 100, type: 'Property Inspector' });
 
     app.commands.addCommand(CommandIDs.showPropertyPanel, {
       label: trans.__('Property Inspector'),
@@ -1046,19 +1092,6 @@ const JupyterLogo: JupyterFrontEndPlugin<void> = {
     });
     logo.id = 'jp-MainLogo';
     shell.add(logo, 'top', { rank: 0 });
-  }
-};
-
-/**
- * A plugin that adds a spacer widget to the top area.
- */
-const topSpacer: JupyterFrontEndPlugin<void> = {
-  id: '@jupyterlab/application-extension:top-spacer',
-  autoStart: true,
-  activate: (app: JupyterFrontEnd) => {
-    const spacer = new Widget();
-    spacer.id = 'jp-topbar-spacer';
-    app.shell.add(spacer, 'top', { rank: 900 });
   }
 };
 
@@ -1110,15 +1143,13 @@ const modeSwitchPlugin: JupyterFrontEndPlugin<void> = {
         });
     }
 
-    modeSwitch.value = labShell.mode === 'single-document';
-
     // Show the current file browser shortcut in its title.
     const updateModeSwitchTitle = () => {
       const binding = app.commands.keyBindings.find(
         b => b.command === 'application:toggle-mode'
       );
       if (binding) {
-        const ks = CommandRegistry.formatKeystroke(binding.keys.join(' '));
+        const ks = binding.keys.map(CommandRegistry.formatKeystroke).join(', ');
         modeSwitch.caption = trans.__('Simple Interface (%1)', ks);
       } else {
         modeSwitch.caption = trans.__('Simple Interface');
@@ -1160,14 +1191,12 @@ const plugins: JupyterFrontEndPlugin<any>[] = [
   paths,
   propertyInspector,
   JupyterLogo,
-  topSpacer
+  topbar
 ];
 
 export default plugins;
 
 namespace Private {
-  type SidebarOverrides = { [id: string]: 'left' | 'right' };
-
   async function displayInformation(trans: TranslationBundle): Promise<void> {
     const result = await showDialog({
       title: trans.__('Information'),
@@ -1193,7 +1222,7 @@ namespace Private {
   ): Promise<void> {
     const trans = translator.load('jupyterlab');
     const pluginId = contextMenuPlugin.id;
-    let canonical: ISettingRegistry.ISchema | null;
+    let canonical: ISettingRegistry.ISchema | null = null;
     let loaded: { [name: string]: ISettingRegistry.IContextMenuItem[] } = {};
 
     /**
@@ -1279,8 +1308,6 @@ namespace Private {
 
     // Repopulate the canonical variable after the setting registry has
     // preloaded all initial plugins.
-    canonical = null;
-
     const settings = await registry.load(pluginId);
 
     const contextItems: ISettingRegistry.IContextMenuItem[] =
@@ -1349,46 +1376,9 @@ namespace Private {
   export function activateSidebarSwitcher(
     app: JupyterFrontEnd,
     labShell: ILabShell,
-    settingRegistry: ISettingRegistry,
-    translator: ITranslator,
-    initial: ILabShell.ILayout
+    settings: ISettingRegistry.ISettings,
+    trans: TranslationBundle
   ): void {
-    const setting = '@jupyterlab/application-extension:sidebar';
-    const trans = translator.load('jupyterlab');
-    let overrides: SidebarOverrides = {};
-    const update = (_: ILabShell, layout: ILabShell.ILayout | void) => {
-      each(labShell.widgets('left'), widget => {
-        if (overrides[widget.id] && overrides[widget.id] === 'right') {
-          labShell.add(widget, 'right');
-          if (layout && layout.rightArea?.currentWidget === widget) {
-            labShell.activateById(widget.id);
-          }
-        }
-      });
-      each(labShell.widgets('right'), widget => {
-        if (overrides[widget.id] && overrides[widget.id] === 'left') {
-          labShell.add(widget, 'left');
-          if (layout && layout.leftArea?.currentWidget === widget) {
-            labShell.activateById(widget.id);
-          }
-        }
-      });
-    };
-    // Fetch overrides from the settings system.
-    void Promise.all([settingRegistry.load(setting), app.restored]).then(
-      ([settings]) => {
-        overrides = (settings.get('overrides').composite ||
-          {}) as SidebarOverrides;
-        settings.changed.connect(settings => {
-          overrides = (settings.get('overrides').composite ||
-            {}) as SidebarOverrides;
-          update(labShell);
-        });
-        labShell.layoutModified.connect(update);
-        update(labShell, initial);
-      }
-    );
-
     // Add a command to switch a side panels's side
     app.commands.addCommand(CommandIDs.switchSidebar, {
       label: trans.__('Switch Sidebar Side'),
@@ -1405,26 +1395,46 @@ namespace Private {
         const id = contextNode.dataset['id']!;
         const leftPanel = document.getElementById('jp-left-stack');
         const node = document.getElementById(id);
-        let side: 'left' | 'right';
 
+        let newLayout: {
+          'single-document': ILabShell.IUserLayout;
+          'multiple-document': ILabShell.IUserLayout;
+        } | null = null;
+        // Move the panel to the other side.
         if (leftPanel && node && leftPanel.contains(node)) {
-          side = 'right';
+          const widget = find(labShell.widgets('left'), w => w.id === id);
+          if (widget) {
+            newLayout = labShell.move(widget, 'right');
+            labShell.activateById(widget.id);
+          }
         } else {
-          side = 'left';
+          const widget = find(labShell.widgets('right'), w => w.id === id);
+          if (widget) {
+            newLayout = labShell.move(widget, 'left');
+            labShell.activateById(widget.id);
+          }
         }
 
-        // Move the panel to the other side.
-        return settingRegistry.set(setting, 'overrides', {
-          ...overrides,
-          [id]: side
-        });
+        if (newLayout) {
+          settings
+            .set('layout', {
+              single: newLayout['single-document'],
+              multiple: newLayout['multiple-document']
+            } as any)
+            .catch(reason => {
+              console.error(
+                'Failed to save user layout customization.',
+                reason
+              );
+            });
+        }
       }
     });
 
     app.commands.commandExecuted.connect((registry, executed) => {
       if (executed.id === CommandIDs.resetLayout) {
-        settingRegistry.set(setting, 'overrides', {}).catch(reason => {
-          console.error('Failed to reset sidebar sides.', reason);
+        settings.remove('layout').catch(reason => {
+          console.error('Failed to remove user layout customization.', reason);
         });
       }
     });

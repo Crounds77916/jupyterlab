@@ -13,14 +13,7 @@ import {
   VDomModel,
   VDomRenderer
 } from '@jupyterlab/ui-components';
-import {
-  ArrayExt,
-  ArrayIterator,
-  each,
-  IIterator,
-  map,
-  toArray
-} from '@lumino/algorithm';
+import { ArrayExt, map } from '@lumino/algorithm';
 import { CommandRegistry } from '@lumino/commands';
 import { DisposableDelegate, IDisposable } from '@lumino/disposable';
 import { AttachedProperty } from '@lumino/properties';
@@ -52,11 +45,11 @@ export class LauncherModel extends VDomModel implements ILauncher.IModel {
     // Create a copy of the options to circumvent mutations to the original.
     const item = Private.createItem(options);
 
-    this._items.push(item);
+    this.itemsList.push(item);
     this.stateChanged.emit(void 0);
 
     return new DisposableDelegate(() => {
-      ArrayExt.removeFirstOf(this._items, item);
+      ArrayExt.removeFirstOf(this.itemsList, item);
       this.stateChanged.emit(void 0);
     });
   }
@@ -64,11 +57,11 @@ export class LauncherModel extends VDomModel implements ILauncher.IModel {
   /**
    * Return an iterator of launcher items.
    */
-  items(): IIterator<ILauncher.IItemOptions> {
-    return new ArrayIterator(this._items);
+  items(): IterableIterator<ILauncher.IItemOptions> {
+    return this.itemsList[Symbol.iterator]();
   }
 
-  private _items: ILauncher.IItemOptions[] = [];
+  protected itemsList: ILauncher.IItemOptions[] = [];
 }
 
 /**
@@ -130,13 +123,13 @@ export class Launcher extends VDomRenderer<ILauncher.IModel> {
 
     // First group-by categories
     const categories = Object.create(null);
-    each(this.model.items(), (item, index) => {
+    for (const item of this.model.items()) {
       const cat = item.category || this._trans.__('Other');
       if (!(cat in categories)) {
         categories[cat] = [];
       }
       categories[cat].push(item);
-    });
+    }
     // Within each category sort by rank
     for (const cat in categories) {
       categories[cat] = categories[cat].sort(
@@ -153,9 +146,9 @@ export class Launcher extends VDomRenderer<ILauncher.IModel> {
     // Assemble the final ordered list of categories, beginning with
     // KNOWN_CATEGORIES.
     const orderedCategories: string[] = [];
-    each(knownCategories, (cat, index) => {
+    for (const cat of knownCategories) {
       orderedCategories.push(cat);
-    });
+    }
     for (const cat in categories) {
       if (knownCategories.indexOf(cat) === -1) {
         orderedCategories.push(cat);
@@ -170,12 +163,8 @@ export class Launcher extends VDomRenderer<ILauncher.IModel> {
       const item = categories[cat][0] as ILauncher.IItemOptions;
       const args = { ...item.args, cwd: this.cwd };
       const kernel = kernelCategories.indexOf(cat) > -1;
-
-      // DEPRECATED: remove _icon when lumino 2.0 is adopted
-      // if icon is aliasing iconClass, don't use it
       const iconClass = this._commands.iconClass(item.command, args);
-      const _icon = this._commands.icon(item.command, args);
-      const icon = _icon === iconClass ? undefined : _icon;
+      const icon = this._commands.icon(item.command, args);
 
       if (cat in categories) {
         section = (
@@ -189,7 +178,7 @@ export class Launcher extends VDomRenderer<ILauncher.IModel> {
               <h2 className="jp-Launcher-sectionTitle">{cat}</h2>
             </div>
             <div className="jp-Launcher-cardContainer">
-              {toArray(
+              {Array.from(
                 map(categories[cat], (item: ILauncher.IItemOptions) => {
                   return Card(
                     kernel,
@@ -237,7 +226,9 @@ export class Launcher extends VDomRenderer<ILauncher.IModel> {
  *
  * @param launcher - the Launcher instance to which this is added.
  *
- * @param launcherCallback - a callback to call after an item has been launched.
+ * @param commands - the command registry holding the command of item.
+ *
+ * @param trans - the translation bundle.
  *
  * @returns a vdom `VirtualElement` for the launcher card.
  */
@@ -273,10 +264,10 @@ function Card(
         launcher.pending = false;
         if (value instanceof Widget) {
           launcherCallback(value);
-          launcher.dispose();
         }
       })
       .catch(err => {
+        console.error(err);
         launcher.pending = false;
         void showErrorMessage(trans._p('Error', 'Launcher Error'), err);
       });
@@ -290,11 +281,8 @@ function Card(
     }
   };
 
-  // DEPRECATED: remove _icon when lumino 2.0 is adopted
-  // if icon is aliasing iconClass, don't use it
   const iconClass = commands.iconClass(command, args);
-  const _icon = commands.icon(command, args);
-  const icon = _icon === iconClass ? undefined : _icon;
+  const icon = commands.icon(command, args);
 
   // Return the VDOM element.
   return (

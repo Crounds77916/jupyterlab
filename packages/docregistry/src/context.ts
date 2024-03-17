@@ -1,6 +1,7 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
+import { PageConfig } from '@jupyterlab/coreutils';
 import {
   Dialog,
   ISessionContext,
@@ -15,7 +16,6 @@ import {
   IDocumentProviderFactory,
   ProviderMock
 } from '@jupyterlab/docprovider';
-import { IModelDB, ModelDB } from '@jupyterlab/observables';
 import { RenderMimeRegistry } from '@jupyterlab/rendermime';
 import { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import {
@@ -23,7 +23,7 @@ import {
   ServerConnection,
   ServiceManager
 } from '@jupyterlab/services';
-import * as ymodels from '@jupyterlab/shared-models';
+import { DocumentChange, ISharedDocument } from '@jupyter/ydoc';
 import {
   ITranslator,
   nullTranslator,
@@ -33,7 +33,6 @@ import { PartialJSONValue, PromiseDelegate } from '@lumino/coreutils';
 import { DisposableDelegate, IDisposable } from '@lumino/disposable';
 import { ISignal, Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
-import * as Y from 'yjs';
 import { DocumentRegistry } from './registry';
 
 /**
@@ -43,7 +42,8 @@ import { DocumentRegistry } from './registry';
  */
 export class Context<
   T extends DocumentRegistry.IModel = DocumentRegistry.IModel
-> implements DocumentRegistry.IContext<T> {
+> implements DocumentRegistry.IContext<T>
+{
   /**
    * Construct a new document context.
    */
@@ -58,26 +58,18 @@ export class Context<
     this._lastModifiedCheckMargin = options.lastModifiedCheckMargin || 500;
     const localPath = this._manager.contents.localPath(this._path);
     const lang = this._factory.preferredLanguage(PathExt.basename(localPath));
-
-    const dbFactory = options.modelDBFactory;
-    if (dbFactory) {
-      const localPath = manager.contents.localPath(this._path);
-      this._modelDB = dbFactory.createNew(localPath);
-      this._model = this._factory.createNew(lang, this._modelDB, false);
-    } else {
-      this._model = this._factory.createNew(lang, undefined, false);
-    }
-
-    const ymodel = this._model.sharedModel as ymodels.YDocument<any>; // translate to the concrete Yjs implementation
-    const ydoc = ymodel.ydoc;
-    this._ydoc = ydoc;
-    this._ycontext = ydoc.getMap('context');
+    this._model = this._factory.createNew(
+      lang,
+      PageConfig.getOption('collaborative') === 'true'
+    );
     const docProviderFactory = options.docProviderFactory;
     this._provider = docProviderFactory
       ? docProviderFactory({
           path: this._path,
           contentType: this._factory.contentType,
-          ymodel
+          format: this._factory.fileFormat!,
+          model: this._model.sharedModel,
+          collaborative: this._model.collaborative
         })
       : new ProviderMock();
 
@@ -98,24 +90,12 @@ export class Context<
     this.sessionContext.propertyChanged.connect(this._onSessionChanged, this);
     manager.contents.fileChanged.connect(this._onFileChanged, this);
 
-    const urlResolver = (this.urlResolver = new RenderMimeRegistry.UrlResolver({
+    this.urlResolver = new RenderMimeRegistry.UrlResolver({
       path: this._path,
       contents: manager.contents
-    }));
-    this._ycontext.set('path', this._path);
-    this._ycontext.observe(event => {
-      const pathChanged = event.changes.keys.get('path');
-      if (pathChanged) {
-        const newPath = this._ycontext.get('path')!;
-        if (newPath && newPath !== pathChanged.oldValue) {
-          urlResolver.path = newPath;
-          this._path = newPath;
-          this._provider.setPath(newPath);
-          this._pathChanged.emit(this.path);
-          this.sessionContext.session?.setPath(newPath) as any;
-        }
-      }
     });
+    this.model.sharedModel.setState('path', this._path);
+    this.model.sharedModel.changed.connect(this.onStateChanged, this);
   }
 
   /**
@@ -222,13 +202,9 @@ export class Context<
     }
     this._isDisposed = true;
     this.sessionContext.dispose();
-    if (this._modelDB) {
-      this._modelDB.dispose();
-    }
     this._model.dispose();
-    this._provider.destroy();
+    this._provider.dispose();
     this._model.sharedModel.dispose();
-    this._ydoc.destroy();
     this._disposed.emit(void 0);
     Signal.clearData(this);
   }
@@ -248,6 +224,13 @@ export class Context<
   }
 
   /**
+   * Whether the document can be saved via the Contents API.
+   */
+  protected get canSave(): boolean {
+    return !!(this._contentsModel?.writable && !this._model.collaborative);
+  }
+
+  /**
    * The url resolver for the context.
    */
   readonly urlResolver: IRenderMime.IResolver;
@@ -259,27 +242,17 @@ export class Context<
    *
    * @returns a promise that resolves upon initialization.
    */
-  async initialize(isNew: boolean): Promise<void> {
-    const lock = await this._provider.acquireLock();
-    const contentIsInitialized = await this._provider.requestInitialContent();
-    let promise;
-    if (isNew || contentIsInitialized) {
-      promise = this._save();
+  async initialize(isNew: boolean) {
+    if (this._model.collaborative) {
+      await this._loadContext();
     } else {
-      promise = this._revert();
+      if (isNew) {
+        await this._save();
+      } else {
+        await this._revert();
+      }
     }
-    // make sure that the lock is released after the above operations are completed.
-    const finally_ = () => {
-      this._provider.releaseLock(lock);
-    };
-    // if save/revert completed successfully, we set the initialized content in the rtc server.
-    promise
-      .then(() => {
-        this._provider.putInitializedState();
-        this._model.initialize();
-      })
-      .then(finally_, finally_);
-    return promise;
+    this.model.sharedModel.clearUndoHistory();
   }
 
   /**
@@ -299,21 +272,8 @@ export class Context<
    * Save the document contents to disk.
    */
   async save(): Promise<void> {
-    const [lock] = await Promise.all([
-      this._provider.acquireLock(),
-      this.ready
-    ]);
-    let promise: Promise<void>;
-    promise = this._save();
-    // if save completed successfully, we set the initialized content in the rtc server.
-    promise = promise.then(() => {
-      this._provider.putInitializedState();
-    });
-    const finally_ = () => {
-      this._provider.releaseLock(lock);
-    };
-    promise.then(finally_, finally_);
-    return await promise;
+    await this.ready;
+    await this._save();
   }
 
   /**
@@ -371,16 +331,8 @@ export class Context<
    * Revert the document contents to disk contents.
    */
   async revert(): Promise<void> {
-    const [lock] = await Promise.all([
-      this._provider.acquireLock(),
-      this.ready
-    ]);
-    const promise = this._revert();
-    const finally_ = () => {
-      this._provider.releaseLock(lock);
-    };
-    promise.then(finally_, finally_);
-    return await promise;
+    await this.ready;
+    await this._revert();
   }
 
   /**
@@ -459,6 +411,20 @@ export class Context<
     });
   }
 
+  protected onStateChanged(sender: ISharedDocument, changes: DocumentChange) {
+    if (changes.stateChange) {
+      changes.stateChange.forEach(change => {
+        if (change.name === 'path' && change.newValue !== change.oldValue) {
+          (this.urlResolver as RenderMimeRegistry.UrlResolver).path =
+            change.newValue;
+          this._path = change.newValue;
+          this.sessionContext.session?.setPath(change.newValue) as any;
+          this._pathChanged.emit(this.path);
+        }
+      });
+    }
+  }
+
   /**
    * Handle a change on the contents manager.
    */
@@ -496,7 +462,7 @@ export class Context<
       const localPath = this._manager.contents.localPath(newPath);
       void this.sessionContext.session?.setName(PathExt.basename(localPath));
       this._updateContentsModel(updateModel as Contents.IModel);
-      this._ycontext.set('path', this._path);
+      this._model.sharedModel.setState('path', this._path);
     }
   }
 
@@ -510,7 +476,7 @@ export class Context<
     const path = this.sessionContext.session!.path;
     if (path !== this._path) {
       this._path = path;
-      this._ycontext.set('path', this._path);
+      this._model.sharedModel.setState('path', this._path);
     }
   }
 
@@ -518,12 +484,13 @@ export class Context<
    * Update our contents model, without the content.
    */
   private _updateContentsModel(model: Contents.IModel): void {
+    const writable = model.writable && !this._model.collaborative;
     const newModel: Contents.IModel = {
       path: model.path,
       name: model.name,
       type: model.type,
       content: undefined,
-      writable: model.writable,
+      writable,
       created: model.created,
       last_modified: model.last_modified,
       mimetype: model.mimetype,
@@ -531,7 +498,7 @@ export class Context<
     };
     const mod = this._contentsModel ? this._contentsModel.last_modified : null;
     this._contentsModel = newModel;
-    this._ycontext.set('last_modified', newModel.last_modified);
+    this._model.sharedModel.setState('last_modified', newModel.last_modified);
     if (!mod || newModel.last_modified !== mod) {
       this._fileChanged.emit(newModel);
     }
@@ -540,33 +507,34 @@ export class Context<
   /**
    * Handle an initial population.
    */
-  private _populate(): Promise<void> {
+  private async _populate(): Promise<void> {
+    await this._provider.ready;
+
     this._isPopulated = true;
     this._isReady = true;
     this._populatedPromise.resolve(void 0);
 
     // Add a checkpoint if none exists and the file is writable.
-    return this._maybeCheckpoint(false).then(() => {
-      if (this.isDisposed) {
-        return;
+    await this._maybeCheckpoint(false);
+    if (this.isDisposed) {
+      return;
+    }
+    // Update the kernel preference.
+    const name =
+      this._model.defaultKernelName ||
+      this.sessionContext.kernelPreference.name;
+    this.sessionContext.kernelPreference = {
+      ...this.sessionContext.kernelPreference,
+      name,
+      language: this._model.defaultKernelLanguage
+    };
+    // Note: we don't wait on the session to initialize
+    // so that the user can be shown the content before
+    // any kernel has started.
+    void this.sessionContext.initialize().then(shouldSelect => {
+      if (shouldSelect) {
+        void this._dialogs.selectKernel(this.sessionContext, this.translator);
       }
-      // Update the kernel preference.
-      const name =
-        this._model.defaultKernelName ||
-        this.sessionContext.kernelPreference.name;
-      this.sessionContext.kernelPreference = {
-        ...this.sessionContext.kernelPreference,
-        name,
-        language: this._model.defaultKernelLanguage
-      };
-      // Note: we don't wait on the session to initialize
-      // so that the user can be shown the content before
-      // any kernel has started.
-      void this.sessionContext.initialize().then(shouldSelect => {
-        if (shouldSelect) {
-          void this._dialogs.selectKernel(this.sessionContext, this.translator);
-        }
-      });
     });
   }
 
@@ -576,25 +544,34 @@ export class Context<
    * @param newName - the new name for the document.
    */
   private async _rename(newName: string): Promise<void> {
-    const splitPath = this.path.split('/');
+    const splitPath = this.localPath.split('/');
     splitPath[splitPath.length - 1] = newName;
-    const newPath = splitPath.join('/');
+    let newPath = PathExt.join(...splitPath);
+    const driveName = this._manager.contents.driveName(this.path);
+    if (driveName) {
+      newPath = `${driveName}:${newPath}`;
+    }
 
     await this._manager.contents.rename(this.path, newPath);
     await this.sessionContext.session?.setPath(newPath);
     await this.sessionContext.session?.setName(newName);
 
     this._path = newPath;
-    this._ycontext.set('path', this._path);
+    this._model.sharedModel.setState('path', this._path);
   }
 
   /**
    * Save the document contents to disk.
    */
   private async _save(): Promise<void> {
+    // if collaborative mode is enabled, saving happens in the back-end
+    // after each change to the document
+    if (this._model.collaborative) {
+      return;
+    }
     this._saveState.emit('started');
     const model = this._model;
-    let content: PartialJSONValue;
+    let content: PartialJSONValue = null;
     if (this._factory.fileFormat === 'json') {
       content = model.toJSON();
     } else {
@@ -612,11 +589,7 @@ export class Context<
     try {
       let value: Contents.IModel;
       await this._manager.ready;
-      if (!model.modelDB.isCollaborative) {
-        value = await this._maybeSave(options);
-      } else {
-        value = await this._manager.contents.save(this._path, options);
-      }
+      value = await this._maybeSave(options);
       if (this.isDisposed) {
         return;
       }
@@ -631,28 +604,66 @@ export class Context<
       // Emit completion.
       this._saveState.emit('completed');
     } catch (err) {
-      // If the save has been canceled by the user,
-      // throw the error so that whoever called save()
-      // can decide what to do.
-      if (
-        err.message === 'Cancel' ||
-        err.message === 'Modal is already displayed'
-      ) {
+      // If the save has been canceled by the user, throw the error
+      // so that whoever called save() can decide what to do.
+      const { name } = err;
+      if (name === 'ModalCancelError' || name === 'ModalDuplicateError') {
         throw err;
       }
 
       // Otherwise show an error message and throw the error.
       const localPath = this._manager.contents.localPath(this._path);
-      const name = PathExt.basename(localPath);
+      const file = PathExt.basename(localPath);
       void this._handleError(
         err,
-        this._trans.__('File Save Error for %1', name)
+        this._trans.__('File Save Error for %1', file)
       );
 
       // Emit failure.
       this._saveState.emit('failed');
       throw err;
     }
+  }
+
+  /**
+   * Load the metadata of the document without the content.
+   */
+  private _loadContext(): Promise<void> {
+    const opts: Contents.IFetchOptions = {
+      type: this._factory.contentType,
+      content: false,
+      ...(this._factory.fileFormat !== null
+        ? { format: this._factory.fileFormat }
+        : {})
+    };
+    const path = this._path;
+    return this._manager.ready
+      .then(() => {
+        return this._manager.contents.get(path, opts);
+      })
+      .then(contents => {
+        if (this.isDisposed) {
+          return;
+        }
+        const model = {
+          ...contents,
+          format: this._factory.fileFormat
+        };
+        this._updateContentsModel(model);
+        this._model.dirty = false;
+        if (!this._isPopulated) {
+          return this._populate();
+        }
+      })
+      .catch(async err => {
+        const localPath = this._manager.contents.localPath(this._path);
+        const name = PathExt.basename(localPath);
+        void this._handleError(
+          err,
+          this._trans.__('File Load Error for %1', name)
+        );
+        throw err;
+      });
   }
 
   /**
@@ -681,9 +692,6 @@ export class Context<
         }
         if (contents.format === 'json') {
           model.fromJSON(contents.content);
-          if (initializeModel) {
-            model.initialize();
-          }
         } else {
           let content = contents.content;
           // Convert line endings if necessary, marking the file
@@ -698,9 +706,6 @@ export class Context<
             this._lineEnding = null;
           }
           model.fromString(content);
-          if (initializeModel) {
-            model.initialize();
-          }
         }
         this._updateContentsModel(contents);
         model.dirty = false;
@@ -737,8 +742,10 @@ export class Context<
         // (our last save)
         // In some cases the filesystem reports an inconsistent time, so we allow buffer when comparing.
         const lastModifiedCheckMargin = this._lastModifiedCheckMargin;
-        const ycontextModified = this._ycontext.get('last_modified');
-        // prefer using the timestamp from ycontext because it is more up to date
+        const ycontextModified = this._model.sharedModel.getState(
+          'last_modified'
+        ) as string;
+        // prefer using the timestamp from the state because it is more up to date
         const modified = ycontextModified || this.contentsModel?.last_modified;
         const tClient = modified ? new Date(modified) : new Date();
         const tDisk = new Date(model.last_modified);
@@ -774,17 +781,15 @@ export class Context<
    * Add a checkpoint the file is writable.
    */
   private _maybeCheckpoint(force: boolean): Promise<void> {
-    let writable = this._contentsModel && this._contentsModel.writable;
     let promise = Promise.resolve(void 0);
-    if (!writable) {
+    if (!this.canSave) {
       return promise;
     }
     if (force) {
       promise = this.createCheckpoint().then(/* no-op */);
     } else {
       promise = this.listCheckpoints().then(checkpoints => {
-        writable = this._contentsModel && this._contentsModel.writable;
-        if (!this.isDisposed && !checkpoints.length && writable) {
+        if (!this.isDisposed && !checkpoints.length && this.canSave) {
           return this.createCheckpoint().then(/* no-op */);
         }
       });
@@ -812,7 +817,9 @@ export class Context<
         `${tDisk}`
     );
     if (this._timeConflictModalIsOpen) {
-      return Promise.reject(new Error('Modal is already displayed'));
+      const error = new Error('Modal is already displayed');
+      error.name = 'ModalDuplicateError';
+      return Promise.reject(error);
     }
     const body = this._trans.__(
       `"%1" has changed on disk since the last time it was opened or saved.
@@ -820,9 +827,13 @@ Do you want to overwrite the file on disk with the version open here,
 or load the version on disk (revert)?`,
       this.path
     );
-    const revertBtn = Dialog.okButton({ label: this._trans.__('Revert') });
+    const revertBtn = Dialog.okButton({
+      label: this._trans.__('Revert'),
+      actions: ['revert']
+    });
     const overwriteBtn = Dialog.warnButton({
-      label: this._trans.__('Overwrite')
+      label: this._trans.__('Overwrite'),
+      actions: ['overwrite']
     });
     this._timeConflictModalIsOpen = true;
     return showDialog({
@@ -834,16 +845,17 @@ or load the version on disk (revert)?`,
       if (this.isDisposed) {
         return Promise.reject(new Error('Disposed'));
       }
-      if (result.button.label === this._trans.__('Overwrite')) {
+      if (result.button.actions.includes('overwrite')) {
         return this._manager.contents.save(this._path, options);
       }
-      // FIXME-TRANS: Why compare to label?
-      if (result.button.label === this._trans.__('Revert')) {
+      if (result.button.actions.includes('revert')) {
         return this.revert().then(() => {
           return model;
         });
       }
-      return Promise.reject(new Error('Cancel')); // Otherwise cancel the save.
+      const error = new Error('Cancel');
+      error.name = 'ModalCancelError';
+      return Promise.reject(error); // Otherwise cancel the save.
     });
   }
 
@@ -856,7 +868,8 @@ or load the version on disk (revert)?`,
       path
     );
     const overwriteBtn = Dialog.warnButton({
-      label: this._trans.__('Overwrite')
+      label: this._trans.__('Overwrite'),
+      accept: true
     });
     return showDialog({
       title: this._trans.__('File Overwrite?'),
@@ -866,8 +879,8 @@ or load the version on disk (revert)?`,
       if (this.isDisposed) {
         return Promise.reject(new Error('Disposed'));
       }
-      // FIXME-TRANS: Why compare to label?
-      if (result.button.label === this._trans.__('Overwrite')) {
+
+      if (result.button.accept) {
         return this._manager.contents.delete(path).then(() => {
           return this._finishSaveAs(path);
         });
@@ -882,8 +895,9 @@ or load the version on disk (revert)?`,
     this._path = newPath;
     await this.sessionContext.session?.setPath(newPath);
     await this.sessionContext.session?.setName(newPath.split('/').pop()!);
+    // we must rename the document before saving with the new path
+    this._model.sharedModel.setState('path', this._path);
     await this.save();
-    this._ycontext.set('path', this._path);
     await this._maybeCheckpoint(true);
   }
 
@@ -895,7 +909,6 @@ or load the version on disk (revert)?`,
     options?: DocumentRegistry.IOpenOptions
   ) => void;
   private _model: T;
-  private _modelDB: IModelDB;
   private _path = '';
   private _lineEnding: string | null = null;
   private _factory: DocumentRegistry.IModelFactory<T>;
@@ -911,8 +924,6 @@ or load the version on disk (revert)?`,
   private _disposed = new Signal<this, void>(this);
   private _dialogs: ISessionContext.IDialogs;
   private _provider: IDocumentProvider;
-  private _ydoc: Y.Doc;
-  private _ycontext: Y.Map<string>;
   private _lastModifiedCheckMargin = 500;
   private _timeConflictModalIsOpen = false;
 }
@@ -941,11 +952,6 @@ export namespace Context {
     path: string;
 
     /**
-     * Whether the model is collaborative.
-     */
-    collaborative?: boolean;
-
-    /**
      * The kernel preference associated with the context.
      */
     kernelPreference?: ISessionContext.IKernelPreference;
@@ -953,12 +959,7 @@ export namespace Context {
     /**
      * An factory method for the document provider.
      */
-    docProviderFactory?: IDocumentProviderFactory;
-
-    /**
-     * An IModelDB factory method which may be used for the document.
-     */
-    modelDBFactory?: ModelDB.IFactory;
+    docProviderFactory?: IDocumentProviderFactory<ISharedDocument>;
 
     /**
      * An optional callback for opening sibling widgets.
@@ -1001,14 +1002,13 @@ namespace Private {
     translator = translator || nullTranslator;
     const trans = translator.load('jupyterlab');
 
-    const saveBtn = Dialog.okButton({ label: trans.__('Save') });
+    const saveBtn = Dialog.okButton({ label: trans.__('Save'), accept: true });
     return showDialog({
       title: trans.__('Save File As..'),
       body: new SaveWidget(path),
       buttons: [Dialog.cancelButton(), saveBtn]
     }).then(result => {
-      // FIXME-TRANS: Why use the label?
-      if (result.button.label === trans.__('Save')) {
+      if (result.button.accept) {
         return result.value ?? undefined;
       }
       return;

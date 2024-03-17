@@ -17,7 +17,8 @@ import { INotebookTracker } from '@jupyterlab/notebook';
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import { Kernel, KernelMessage, Session } from '@jupyterlab/services';
 import { ITooltipManager, Tooltip } from '@jupyterlab/tooltip';
-import { find, toArray } from '@lumino/algorithm';
+import { ITranslator, nullTranslator } from '@jupyterlab/translation';
+import { find } from '@lumino/algorithm';
 import { JSONObject } from '@lumino/coreutils';
 import { Widget } from '@lumino/widgets';
 
@@ -40,12 +41,18 @@ namespace CommandIDs {
 const manager: JupyterFrontEndPlugin<ITooltipManager> = {
   id: '@jupyterlab/tooltip-extension:manager',
   autoStart: true,
+  optional: [ITranslator],
   provides: ITooltipManager,
-  activate: (app: JupyterFrontEnd): ITooltipManager => {
+  activate: (
+    app: JupyterFrontEnd,
+    translator: ITranslator | null
+  ): ITooltipManager => {
+    const trans = (translator ?? nullTranslator).load('jupyterlab');
     let tooltip: Tooltip | null = null;
 
     // Add tooltip dismiss command.
     app.commands.addCommand(CommandIDs.dismiss, {
+      label: trans.__('Dismiss the tooltip'),
       execute: () => {
         if (tooltip) {
           tooltip.dispose();
@@ -83,14 +90,19 @@ const manager: JupyterFrontEndPlugin<ITooltipManager> = {
 const consoles: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/tooltip-extension:consoles',
   autoStart: true,
+  optional: [ITranslator],
   requires: [ITooltipManager, IConsoleTracker],
   activate: (
     app: JupyterFrontEnd,
     manager: ITooltipManager,
-    consoles: IConsoleTracker
+    consoles: IConsoleTracker,
+    translator: ITranslator | null
   ): void => {
+    const trans = (translator ?? nullTranslator).load('jupyterlab');
+
     // Add tooltip launch command.
     app.commands.addCommand(CommandIDs.launchConsole, {
+      label: trans.__('Open the tooltip'),
       execute: () => {
         const parent = consoles.currentWidget;
 
@@ -118,14 +130,19 @@ const consoles: JupyterFrontEndPlugin<void> = {
 const notebooks: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/tooltip-extension:notebooks',
   autoStart: true,
+  optional: [ITranslator],
   requires: [ITooltipManager, INotebookTracker],
   activate: (
     app: JupyterFrontEnd,
     manager: ITooltipManager,
-    notebooks: INotebookTracker
+    notebooks: INotebookTracker,
+    translator: ITranslator | null
   ): void => {
+    const trans = (translator ?? nullTranslator).load('jupyterlab');
+
     // Add tooltip launch command.
     app.commands.addCommand(CommandIDs.launchNotebook, {
+      label: trans.__('Open the tooltip'),
       execute: () => {
         const parent = notebooks.currentWidget;
 
@@ -153,13 +170,17 @@ const notebooks: JupyterFrontEndPlugin<void> = {
 const files: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/tooltip-extension:files',
   autoStart: true,
+  optional: [ITranslator],
   requires: [ITooltipManager, IEditorTracker, IRenderMimeRegistry],
   activate: (
     app: JupyterFrontEnd,
     manager: ITooltipManager,
     editorTracker: IEditorTracker,
-    rendermime: IRenderMimeRegistry
+    rendermime: IRenderMimeRegistry,
+    translator: ITranslator | null
   ): void => {
+    const trans = (translator ?? nullTranslator).load('jupyterlab');
+
     // Keep a list of active ISessions so that we can
     // clean them up when they are no longer needed.
     const activeSessions: {
@@ -172,7 +193,7 @@ const files: JupyterFrontEndPlugin<void> = {
     // matching path for the file editors.
     const onRunningChanged = (
       sender: Session.IManager,
-      models: Session.IModel[]
+      models: Iterable<Session.IModel>
     ) => {
       editorTracker.forEach(file => {
         const model = find(models, m => file.context.path === m.path);
@@ -200,7 +221,7 @@ const files: JupyterFrontEndPlugin<void> = {
         }
       });
     };
-    onRunningChanged(sessions, toArray(sessions.running()));
+    onRunningChanged(sessions, sessions.running());
     sessions.runningChanged.connect(onRunningChanged);
 
     // Clean up after a widget when it is disposed
@@ -216,6 +237,7 @@ const files: JupyterFrontEndPlugin<void> = {
 
     // Add tooltip launch command.
     app.commands.addCommand(CommandIDs.launchFile, {
+      label: trans.__('Open the tooltip'),
       execute: async () => {
         const parent = editorTracker.currentWidget;
         const kernel =
@@ -283,7 +305,7 @@ namespace Private {
    */
   export function fetch(options: IFetchOptions): Promise<JSONObject> {
     const { detail, editor, kernel } = options;
-    const code = editor.model.value.text;
+    const code = editor.model.sharedModel.getSource();
     const position = editor.getCursorPosition();
     const offset = Text.jsIndexToCharIndex(editor.getOffsetAt(position), code);
 

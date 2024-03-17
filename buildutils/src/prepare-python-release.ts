@@ -3,7 +3,7 @@
 | Distributed under the terms of the Modified BSD License.
 |----------------------------------------------------------------------------*/
 
-import commander from 'commander';
+import { program as commander } from 'commander';
 import * as crypto from 'crypto';
 import * as fs from 'fs-extra';
 import * as path from 'path';
@@ -13,7 +13,7 @@ import * as utils from './utils';
 commander
   .description('Prepare the Python package for release')
   .action(async (options: any) => {
-    utils.exitOnUuncaughtException();
+    utils.exitOnUncaughtException();
 
     const distDir = './dist';
 

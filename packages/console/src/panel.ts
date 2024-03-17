@@ -135,7 +135,7 @@ export class ConsolePanel extends MainAreaWidget<Panel> {
   protected onActivateRequest(msg: Message): void {
     const prompt = this.console.promptCell;
     if (prompt) {
-      prompt.editor.focus();
+      prompt.editor!.focus();
     }
   }
 
@@ -252,7 +252,8 @@ export namespace ConsolePanel {
    */
   export class ContentFactory
     extends CodeConsole.ContentFactory
-    implements IContentFactory {
+    implements IContentFactory
+  {
     /**
      * Create a new console panel.
      */

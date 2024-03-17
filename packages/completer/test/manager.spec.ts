@@ -4,6 +4,8 @@
 import { ISessionContext, SessionContext } from '@jupyterlab/apputils';
 import { Cell, CellModel } from '@jupyterlab/cells';
 import {
+  Completer,
+  CompleterModel,
   CompletionHandler,
   CompletionProviderManager,
   ConnectorProxy,
@@ -14,6 +16,7 @@ import {
 import { Context } from '@jupyterlab/docregistry';
 import { INotebookModel, NotebookModelFactory } from '@jupyterlab/notebook';
 import { ServiceManager } from '@jupyterlab/services';
+import { createStandaloneCell } from '@jupyter/ydoc';
 
 import { createSessionContext } from '@jupyterlab/testutils';
 import { NBTestUtils } from '@jupyterlab/testutils';
@@ -39,6 +42,15 @@ function contextFactory(): Context<INotebookModel> {
   });
   return context;
 }
+
+class TestCellModel extends CellModel {
+  get type(): string {
+    return 'code';
+  }
+}
+
+class CustomCompleterModel extends CompleterModel {}
+
 class FooCompletionProvider implements ICompletionProvider {
   identifier: string = SAMPLE_PROVIDER_ID;
   renderer = null;
@@ -57,6 +69,10 @@ class FooCompletionProvider implements ICompletionProvider {
   }
   async isApplicable(context: ICompletionContext): Promise<boolean> {
     return true;
+  }
+
+  async modelFactory(context: ICompletionContext): Promise<Completer.IModel> {
+    return new CustomCompleterModel();
   }
 }
 
@@ -139,8 +155,19 @@ describe('completer/manager', () => {
 
     describe('#generateHandler()', () => {
       it('should create a handler with connector proxy', async () => {
-        const handler = await manager['generateHandler']({});
+        const handler = (await manager['generateHandler'](
+          {}
+        )) as CompletionHandler;
         expect(handler).toBeInstanceOf(CompletionHandler);
+      });
+
+      it('should create a handler with a custom model', async () => {
+        manager.registerProvider(new FooCompletionProvider());
+        manager.activateProvider([SAMPLE_PROVIDER_ID]);
+        const handler = (await manager['generateHandler'](
+          {}
+        )) as CompletionHandler;
+        expect(handler.completer.model).toBeInstanceOf(CustomCompleterModel);
       });
     });
 
@@ -160,14 +187,19 @@ describe('completer/manager', () => {
         const completerContext = { widget };
 
         await manager.updateCompleter(completerContext);
-        const cell = new Cell({ model: new CellModel({}) });
+        const cell = new Cell({
+          model: new TestCellModel({
+            sharedModel: createStandaloneCell({ cell_type: 'code' })
+          }),
+          placeholder: false
+        });
         const newCompleterContext = {
           editor: cell.editor,
           session: widget.sessionContext.session,
           widget
         };
         const handler = manager['_panelHandlers'].get(widget.id);
-        manager.updateCompleter(newCompleterContext);
+        manager.updateCompleter(newCompleterContext).catch(console.error);
         expect(handler.editor).toBe(newCompleterContext.editor);
       });
     });

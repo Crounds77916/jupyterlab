@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -44,6 +44,12 @@ jobs:
           server_url: http-get://localhost:8888/lab
           test_folder: galata
 
+      - name: Comment back on the PR
+        run: |
+          hub api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments --raw-field 'body=Galata snapshots updated.'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   update-documentation-snapshots:
     name: Update Documentation Snapshots
     if: ${{ github.event.issue.pull_request && (contains(github.event.comment.body, 'please update documentation snapshots') || contains(github.event.comment.body, 'please update snapshots')) }}
@@ -60,13 +66,13 @@ jobs:
 
     steps:
       - name: Checkout JupyterLab
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           path: core
 
       - name: Checkout demo project
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: jupyterlab/jupyterlab-demo
           ref: master
@@ -113,3 +119,9 @@ jobs:
           test_folder: core/galata
           start_server_script: start:doc
           update_script: test:doc:update
+
+      - name: Comment back on the PR
+        run: |
+          hub api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments --raw-field 'body=Documentation snapshots updated.'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

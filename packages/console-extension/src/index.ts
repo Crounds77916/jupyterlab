@@ -15,8 +15,10 @@ import {
   Dialog,
   ICommandPalette,
   IKernelStatusModel,
+  ISanitizer,
   ISessionContext,
   ISessionContextDialogs,
+  Sanitizer,
   sessionContextDialogs,
   showDialog,
   WidgetTracker
@@ -33,7 +35,7 @@ import { ILauncher } from '@jupyterlab/launcher';
 import { IMainMenu } from '@jupyterlab/mainmenu';
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
-import { ITranslator } from '@jupyterlab/translation';
+import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { consoleIcon } from '@jupyterlab/ui-components';
 import { find } from '@lumino/algorithm';
 import {
@@ -172,7 +174,7 @@ const lineColStatus: JupyterFrontEndPlugin<void> = {
   ) => {
     let previousWidget: ConsolePanel | null = null;
 
-    const provider = (widget: Widget | null) => {
+    const provider = async (widget: Widget | null) => {
       let editor: CodeEditor.IEditor | null = null;
       if (widget !== previousWidget) {
         previousWidget?.console.promptCellCreated.disconnect(
@@ -184,11 +186,21 @@ const lineColStatus: JupyterFrontEndPlugin<void> = {
           (widget as ConsolePanel).console.promptCellCreated.connect(
             positionModel.update
           );
-          editor = (widget as ConsolePanel).console.promptCell?.editor ?? null;
+          const promptCell = (widget as ConsolePanel).console.promptCell;
+          editor = null;
+          if (promptCell) {
+            await promptCell.ready;
+            editor = promptCell.editor;
+          }
           previousWidget = widget as ConsolePanel;
         }
       } else if (widget) {
-        editor = (widget as ConsolePanel).console.promptCell?.editor ?? null;
+        const promptCell = (widget as ConsolePanel).console.promptCell;
+        editor = null;
+        if (promptCell) {
+          await promptCell.ready;
+          editor = promptCell.editor;
+        }
       }
       return editor;
     };
@@ -201,7 +213,7 @@ const completerPlugin: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/console-extension:completer',
   autoStart: true,
   requires: [IConsoleTracker],
-  optional: [ICompletionProviderManager],
+  optional: [ICompletionProviderManager, ITranslator, ISanitizer],
   activate: activateConsoleCompleterService
 };
 
@@ -281,7 +293,8 @@ async function activateConsole(
         for (const name in specs.kernelspecs) {
           const rank = name === specs.default ? 0 : Infinity;
           const spec = specs.kernelspecs[name]!;
-          let kernelIconUrl = spec.resources['logo-64x64'];
+          const kernelIconUrl =
+            spec.resources['logo-svg'] || spec.resources['logo-64x64'];
           disposables.add(
             launcher.add({
               command: CommandIDs.create,
@@ -326,6 +339,15 @@ async function activateConsole(
      * to the main area relative to a reference widget.
      */
     insertMode?: DockLayout.InsertMode;
+
+    /**
+     * Type of widget to open
+     *
+     * #### Notes
+     * This is the key used to load user layout customization.
+     * Its typical value is: a factory name or the widget id (if singleton)
+     */
+    type?: string;
   }
 
   /**
@@ -362,7 +384,8 @@ async function activateConsole(
     shell.add(panel, 'main', {
       ref: options.ref,
       mode: options.insertMode,
-      activate: options.activate !== false
+      activate: options.activate !== false,
+      type: options.type ?? 'Console'
     });
     return panel;
   }
@@ -469,7 +492,13 @@ async function activateConsole(
 
     const setWidgetOptions = (widget: ConsolePanel) => {
       widget.console.node.dataset.jpInteractionMode = interactionMode;
-      setOption(widget.console.promptCell?.editor, promptCellConfig);
+      // Update future promptCells
+      widget.console.editorConfig = promptCellConfig;
+      // Update promptCell already on screen
+      setOption(
+        widget.console.promptCell?.editor ?? undefined,
+        promptCellConfig
+      );
     };
 
     if (panel) {
@@ -524,6 +553,7 @@ async function activateConsole(
 
   let command = CommandIDs.open;
   commands.addCommand(command, {
+    label: trans.__('Open a console for the provided `path`.'),
     execute: (args: IOpenOptions) => {
       const path = args['path'];
       const widget = tracker.find(value => {
@@ -720,6 +750,7 @@ async function activateConsole(
   });
 
   commands.addCommand(CommandIDs.inject, {
+    label: trans.__('Inject some code in a console.'),
     execute: args => {
       const path = args['path'];
       tracker.find(widget => {
@@ -843,7 +874,9 @@ async function activateConsole(
 
   // Add the execute keystroke setting submenu.
   commands.addCommand(CommandIDs.interactionMode, {
-    label: args => runShortcutTitles[args['interactionMode'] as string] || '',
+    label: args =>
+      runShortcutTitles[args['interactionMode'] as string] ??
+      'Set the console interaction mode.',
     execute: async args => {
       const key = 'keyMap';
       try {
@@ -868,13 +901,19 @@ async function activateConsole(
 function activateConsoleCompleterService(
   app: JupyterFrontEnd,
   consoles: IConsoleTracker,
-  manager?: ICompletionProviderManager
+  manager: ICompletionProviderManager | null,
+  translator: ITranslator | null,
+  appSanitizer: ISanitizer | null
 ): void {
   if (!manager) {
     return;
   }
 
+  const trans = (translator ?? nullTranslator).load('jupyterlab');
+  const sanitizer = appSanitizer ?? new Sanitizer();
+
   app.commands.addCommand(CommandIDs.invokeCompleter, {
+    label: trans.__('Display the completion helper.'),
     execute: () => {
       const id = consoles.currentWidget && consoles.currentWidget.id;
 
@@ -885,6 +924,7 @@ function activateConsoleCompleterService(
   });
 
   app.commands.addCommand(CommandIDs.selectCompleter, {
+    label: trans.__('Select the completion suggestion.'),
     execute: () => {
       const id = consoles.currentWidget && consoles.currentWidget.id;
 
@@ -899,29 +939,36 @@ function activateConsoleCompleterService(
     keys: ['Enter'],
     selector: '.jp-ConsolePanel .jp-mod-completer-active'
   });
-
-  consoles.widgetAdded.connect(async (_, consolePanel) => {
+  const updateCompleter = async (_: any, consolePanel: ConsolePanel) => {
     const completerContext = {
       editor: consolePanel.console.promptCell?.editor ?? null,
       session: consolePanel.console.sessionContext.session,
       widget: consolePanel
     };
     await manager.updateCompleter(completerContext);
-    consolePanel.console.promptCellCreated.connect((console, cell) => {
+    consolePanel.console.promptCellCreated.connect((codeConsole, cell) => {
       const newContext = {
         editor: cell.editor,
-        session: console.sessionContext.session,
-        widget: consolePanel
+        session: codeConsole.sessionContext.session,
+        widget: consolePanel,
+        sanitzer: sanitizer
       };
-      manager.updateCompleter(newContext);
+      manager.updateCompleter(newContext).catch(console.error);
     });
     consolePanel.console.sessionContext.sessionChanged.connect(() => {
       const newContext = {
         editor: consolePanel.console.promptCell?.editor ?? null,
         session: consolePanel.console.sessionContext.session,
-        widget: consolePanel
+        widget: consolePanel,
+        sanitizer: sanitizer
       };
-      manager.updateCompleter(newContext);
+      manager.updateCompleter(newContext).catch(console.error);
+    });
+  };
+  consoles.widgetAdded.connect(updateCompleter);
+  manager.activeProvidersChanged.connect(() => {
+    consoles.forEach(consoleWidget => {
+      updateCompleter(undefined, consoleWidget).catch(e => console.error(e));
     });
   });
 }

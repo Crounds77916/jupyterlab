@@ -2,7 +2,7 @@
 // Distributed under the terms of the Modified BSD License.
 
 import { ISessionContext, sessionContextDialogs } from '@jupyterlab/apputils';
-import { PathExt } from '@jupyterlab/coreutils';
+import { IChangedArgs, PathExt } from '@jupyterlab/coreutils';
 import { IDocumentProviderFactory } from '@jupyterlab/docprovider';
 import {
   Context,
@@ -18,7 +18,7 @@ import { AttachedProperty } from '@lumino/properties';
 import { ISignal, Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { SaveHandler } from './savehandler';
-import { IDocumentManager } from './tokens';
+import { IDocumentManager, IDocumentWidgetOpener } from './tokens';
 import { DocumentWidgetManager } from './widgetmanager';
 
 /**
@@ -39,7 +39,6 @@ export class DocumentManager implements IDocumentManager {
     this.translator = options.translator || nullTranslator;
     this.registry = options.registry;
     this.services = options.manager;
-    this._collaborative = !!options.collaborative;
     this._dialogs = options.sessionDialogs || sessionContextDialogs;
     this._docProviderFactory = options.docProviderFactory;
     this._isConnectedCallback = options.isConnectedCallback || (() => true);
@@ -52,6 +51,7 @@ export class DocumentManager implements IDocumentManager {
       translator: this.translator
     });
     widgetManager.activateRequested.connect(this._onActivateRequested, this);
+    widgetManager.stateChanged.connect(this._onWidgetStateChanged, this);
     this._widgetManager = widgetManager;
     this._setBusy = options.setBusy;
   }
@@ -81,20 +81,28 @@ export class DocumentManager implements IDocumentManager {
   }
 
   set autosave(value: boolean) {
-    this._autosave = value;
+    if (this._autosave !== value) {
+      const oldValue = this._autosave;
+      this._autosave = value;
 
-    // For each existing context, start/stop the autosave handler as needed.
-    this._contexts.forEach(context => {
-      const handler = Private.saveHandlerProperty.get(context);
-      if (!handler) {
-        return;
-      }
-      if (value === true && !handler.isActive) {
-        handler.start();
-      } else if (value === false && handler.isActive) {
-        handler.stop();
-      }
-    });
+      // For each existing context, start/stop the autosave handler as needed.
+      this._contexts.forEach(context => {
+        const handler = Private.saveHandlerProperty.get(context);
+        if (!handler) {
+          return;
+        }
+        if (value === true && !handler.isActive) {
+          handler.start();
+        } else if (value === false && handler.isActive) {
+          handler.stop();
+        }
+      });
+      this._stateChanged.emit({
+        name: 'autosave',
+        oldValue,
+        newValue: value
+      });
+    }
   }
 
   /**
@@ -105,16 +113,42 @@ export class DocumentManager implements IDocumentManager {
   }
 
   set autosaveInterval(value: number) {
-    this._autosaveInterval = value;
+    if (this._autosaveInterval !== value) {
+      const oldValue = this._autosaveInterval;
+      this._autosaveInterval = value;
 
-    // For each existing context, set the save interval as needed.
-    this._contexts.forEach(context => {
-      const handler = Private.saveHandlerProperty.get(context);
-      if (!handler) {
-        return;
-      }
-      handler.saveInterval = value || 120;
-    });
+      // For each existing context, set the save interval as needed.
+      this._contexts.forEach(context => {
+        const handler = Private.saveHandlerProperty.get(context);
+        if (!handler) {
+          return;
+        }
+        handler.saveInterval = value || 120;
+      });
+      this._stateChanged.emit({
+        name: 'autosaveInterval',
+        oldValue,
+        newValue: value
+      });
+    }
+  }
+
+  /**
+   * Whether to ask confirmation to close a tab or not.
+   */
+  get confirmClosingDocument(): boolean {
+    return this._widgetManager.confirmClosingDocument;
+  }
+  set confirmClosingDocument(value: boolean) {
+    if (this._widgetManager.confirmClosingDocument !== value) {
+      const oldValue = this._widgetManager.confirmClosingDocument;
+      this._widgetManager.confirmClosingDocument = value;
+      this._stateChanged.emit({
+        name: 'confirmClosingDocument',
+        oldValue,
+        newValue: value
+      });
+    }
   }
 
   /**
@@ -125,12 +159,46 @@ export class DocumentManager implements IDocumentManager {
   }
 
   set lastModifiedCheckMargin(value: number) {
-    this._lastModifiedCheckMargin = value;
+    if (this._lastModifiedCheckMargin !== value) {
+      const oldValue = this._lastModifiedCheckMargin;
+      this._lastModifiedCheckMargin = value;
 
-    // For each existing context, update the margin value.
-    this._contexts.forEach(context => {
-      context.lastModifiedCheckMargin = value;
-    });
+      // For each existing context, update the margin value.
+      this._contexts.forEach(context => {
+        context.lastModifiedCheckMargin = value;
+      });
+      this._stateChanged.emit({
+        name: 'lastModifiedCheckMargin',
+        oldValue,
+        newValue: value
+      });
+    }
+  }
+
+  /**
+   * Whether to ask the user to rename untitled file on first manual save.
+   */
+  get renameUntitledFileOnSave(): boolean {
+    return this._renameUntitledFileOnSave;
+  }
+
+  set renameUntitledFileOnSave(value: boolean) {
+    if (this._renameUntitledFileOnSave !== value) {
+      const oldValue = this._renameUntitledFileOnSave;
+      this._renameUntitledFileOnSave = value;
+      this._stateChanged.emit({
+        name: 'renameUntitledFileOnSave',
+        oldValue,
+        newValue: value
+      });
+    }
+  }
+
+  /**
+   * Signal triggered when an attribute changes.
+   */
+  get stateChanged(): ISignal<IDocumentManager, IChangedArgs<any>> {
+    return this._stateChanged;
   }
 
   /**
@@ -276,6 +344,18 @@ export class DocumentManager implements IDocumentManager {
   }
 
   /**
+   * Duplicate a file.
+   *
+   * @param path - The full path to the file to be duplicated.
+   *
+   * @returns A promise which resolves when the file is duplicated.
+   */
+  duplicate(path: string): Promise<Contents.IModel> {
+    const basePath = PathExt.dirname(path);
+    return this.services.contents.copy(path, basePath);
+  }
+
+  /**
    * See if a widget already exists for the given path and widget name.
    *
    * @param path - The file path to use.
@@ -385,10 +465,13 @@ export class DocumentManager implements IDocumentManager {
   ): IDocumentWidget | undefined {
     const widget = this.findWidget(path, widgetName);
     if (widget) {
-      this._opener.open(widget, options || {});
+      this._opener.open(widget, {
+        type: widgetName,
+        ...options
+      });
       return widget;
     }
-    return this.open(path, widgetName, kernel, options || {});
+    return this.open(path, widgetName, kernel, options ?? {});
   }
 
   /**
@@ -476,20 +559,17 @@ export class DocumentManager implements IDocumentManager {
       options?: DocumentRegistry.IOpenOptions
     ) => {
       this._widgetManager.adoptWidget(context, widget);
+      // TODO should we pass the type for layout customization
       this._opener.open(widget, options);
     };
-    const modelDBFactory =
-      this.services.contents.getModelDBFactory(path) || undefined;
     const context = new Context({
       opener: adopter,
       manager: this.services,
       factory,
       path,
       kernelPreference,
-      modelDBFactory,
       setBusy: this._setBusy,
       sessionDialogs: this._dialogs,
-      collaborative: this._collaborative,
       docProviderFactory: this._docProviderFactory,
       lastModifiedCheckMargin: this._lastModifiedCheckMargin,
       translator: this.translator
@@ -589,7 +669,7 @@ export class DocumentManager implements IDocumentManager {
     }
 
     const widget = this._widgetManager.createWidget(widgetFactory, context);
-    this._opener.open(widget, options || {});
+    this._opener.open(widget, { type: widgetFactory.name, ...options });
 
     // If the initial opening of the context fails, dispose of the widget.
     ready.catch(err => {
@@ -613,21 +693,31 @@ export class DocumentManager implements IDocumentManager {
     this._activateRequested.emit(args);
   }
 
+  protected _onWidgetStateChanged(
+    sender: DocumentWidgetManager,
+    args: IChangedArgs<any>
+  ): void {
+    if (args.name === 'confirmClosingDocument') {
+      this._stateChanged.emit(args);
+    }
+  }
+
   protected translator: ITranslator;
   private _activateRequested = new Signal<this, string>(this);
   private _contexts: Private.IContext[] = [];
-  private _opener: DocumentManager.IWidgetOpener;
+  private _opener: IDocumentWidgetOpener;
   private _widgetManager: DocumentWidgetManager;
   private _isDisposed = false;
   private _autosave = true;
   private _autosaveInterval = 120;
   private _lastModifiedCheckMargin = 500;
+  private _renameUntitledFileOnSave = true;
   private _when: Promise<void>;
   private _setBusy: (() => IDisposable) | undefined;
   private _dialogs: ISessionContext.IDialogs;
   private _docProviderFactory: IDocumentProviderFactory | undefined;
-  private _collaborative: boolean;
   private _isConnectedCallback: () => boolean;
+  private _stateChanged = new Signal<DocumentManager, IChangedArgs<any>>(this);
 }
 
 /**
@@ -651,7 +741,7 @@ export namespace DocumentManager {
     /**
      * A widget opener for sibling widgets.
      */
-    opener: IWidgetOpener;
+    opener: IDocumentWidgetOpener;
 
     /**
      * A promise for when to start using the manager.
@@ -679,29 +769,10 @@ export namespace DocumentManager {
     docProviderFactory?: IDocumentProviderFactory;
 
     /**
-     * Whether the context should be collaborative.
-     * If true, the context will connect through yjs_ws_server to share information if possible.
-     */
-    collaborative?: boolean;
-
-    /**
      * Autosaving should be paused while this callback function returns `false`.
      * By default, it always returns `true`.
      */
     isConnectedCallback?: () => boolean;
-  }
-
-  /**
-   * An interface for a widget opener.
-   */
-  export interface IWidgetOpener {
-    /**
-     * Open the given widget.
-     */
-    open(
-      widget: IDocumentWidget,
-      options?: DocumentRegistry.IOpenOptions
-    ): void;
   }
 }
 

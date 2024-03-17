@@ -1,8 +1,7 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { IJupyterLabPageFixture, test } from '@jupyterlab/galata';
-import { expect } from '@playwright/test';
+import { expect, IJupyterLabPageFixture, test } from '@jupyterlab/galata';
 
 const fileName = 'notebook.ipynb';
 
@@ -70,7 +69,7 @@ test.describe('Notebook Edit', () => {
     const imageName = 'cut-paste-cell.png';
     await page.notebook.selectCells(0);
     await page.menu.clickMenuItem('Edit>Cut Cells');
-    await page.notebook.selectCells(2);
+    await page.notebook.selectCells(0);
     await page.menu.clickMenuItem('Edit>Paste Cells Below');
     const nbPanel = await page.notebook.getNotebookInPanel();
 

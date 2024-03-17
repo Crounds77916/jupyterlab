@@ -1,6 +1,6 @@
 {
   "name": "@jupyterlab/filebrowser-extension",
-  "version": "4.0.0-alpha.7",
+  "version": "4.0.0-alpha.16",
   "description": "JupyterLab - Filebrowser Widget Extension",
   "homepage": "https://github.com/jupyterlab/jupyterlab",
   "bugs": {
@@ -37,28 +37,26 @@
     "watch": "tsc -b --watch"
   },
   "dependencies": {
-    "@jupyterlab/application": "^4.0.0-alpha.7",
-    "@jupyterlab/apputils": "^4.0.0-alpha.7",
-    "@jupyterlab/coreutils": "^6.0.0-alpha.7",
-    "@jupyterlab/docmanager": "^4.0.0-alpha.7",
-    "@jupyterlab/docregistry": "^4.0.0-alpha.7",
-    "@jupyterlab/filebrowser": "^4.0.0-alpha.7",
-    "@jupyterlab/launcher": "^4.0.0-alpha.7",
-    "@jupyterlab/services": "^7.0.0-alpha.7",
-    "@jupyterlab/settingregistry": "^4.0.0-alpha.7",
-    "@jupyterlab/statedb": "^4.0.0-alpha.7",
-    "@jupyterlab/statusbar": "^4.0.0-alpha.7",
-    "@jupyterlab/translation": "^4.0.0-alpha.7",
-    "@jupyterlab/ui-components": "^4.0.0-alpha.22",
-    "@lumino/algorithm": "^1.9.1",
-    "@lumino/commands": "^1.20.0",
-    "@lumino/coreutils": "^1.12.0",
-    "@lumino/widgets": "^1.31.1"
+    "@jupyterlab/application": "^4.0.0-alpha.16",
+    "@jupyterlab/apputils": "^4.0.0-alpha.16",
+    "@jupyterlab/coreutils": "^6.0.0-alpha.16",
+    "@jupyterlab/docmanager": "^4.0.0-alpha.16",
+    "@jupyterlab/docregistry": "^4.0.0-alpha.16",
+    "@jupyterlab/filebrowser": "^4.0.0-alpha.16",
+    "@jupyterlab/services": "^7.0.0-alpha.16",
+    "@jupyterlab/settingregistry": "^4.0.0-alpha.16",
+    "@jupyterlab/statedb": "^4.0.0-alpha.16",
+    "@jupyterlab/statusbar": "^4.0.0-alpha.16",
+    "@jupyterlab/translation": "^4.0.0-alpha.16",
+    "@jupyterlab/ui-components": "^4.0.0-alpha.31",
+    "@lumino/algorithm": "^2.0.0-alpha.6",
+    "@lumino/commands": "^2.0.0-alpha.6",
+    "@lumino/widgets": "^2.0.0-alpha.6"
   },
   "devDependencies": {
     "rimraf": "~3.0.0",
     "typedoc": "~0.22.10",
-    "typescript": "~4.5.2"
+    "typescript": "~4.7.3"
   },
   "publishConfig": {
     "access": "public"

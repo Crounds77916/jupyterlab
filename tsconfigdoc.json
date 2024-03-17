@@ -12,6 +12,11 @@
         "./packages/*/src"
       ]
     },
+    "lib": [
+      "DOM",
+      "DOM.iterable",
+      "es2019.array"
+    ],
     "moduleResolution": "node",
     "types": [
       "jest",
@@ -32,6 +37,12 @@
       "path": "./packages/attachments"
     },
     {
+      "path": "./packages/cell-toolbar"
+    },
+    {
+      "path": "./packages/cell-toolbar-extension"
+    },
+    {
       "path": "./packages/cells"
     },
     {
@@ -48,6 +59,12 @@
     },
     {
       "path": "./packages/codemirror-extension"
+    },
+    {
+      "path": "./packages/collaboration"
+    },
+    {
+      "path": "./packages/collaboration-extension"
     },
     {
       "path": "./packages/completer"
@@ -158,6 +175,12 @@
       "path": "./packages/logconsole-extension"
     },
     {
+      "path": "./packages/lsp"
+    },
+    {
+      "path": "./packages/lsp-extension"
+    },
+    {
       "path": "./packages/mainmenu"
     },
     {
@@ -227,9 +250,6 @@
       "path": "./packages/settingregistry"
     },
     {
-      "path": "./packages/shared-models"
-    },
-    {
       "path": "./packages/shortcuts-extension"
     },
     {
@@ -276,12 +296,6 @@
     },
     {
       "path": "./packages/ui-components-extension"
-    },
-    {
-      "path": "./packages/user"
-    },
-    {
-      "path": "./packages/user-extension"
     },
     {
       "path": "./packages/vdom"

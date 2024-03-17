@@ -5,9 +5,11 @@ import { CodeEditor, CodeEditorWrapper } from '@jupyterlab/codeeditor';
 
 import { KernelMessage, Session } from '@jupyterlab/services';
 
+import { ISharedText } from '@jupyter/ydoc';
+
 import { ReadonlyJSONObject, Token } from '@lumino/coreutils';
 
-import { IObservableDisposable } from '@lumino/disposable';
+import { IDisposable, IObservableDisposable } from '@lumino/disposable';
 
 import { ISignal, Signal } from '@lumino/signaling';
 
@@ -158,6 +160,11 @@ export interface IDebugger {
    * Precondition: !isStarted
    */
   start(): Promise<void>;
+
+  /**
+   * Makes the current thread pause if possible.
+   */
+  pause(): Promise<void>;
 
   /**
    * Makes the current thread step in a function / method if possible.
@@ -396,7 +403,7 @@ export namespace IDebugger {
      *
      * @param params - The editor find parameters.
      */
-    find(params: ISources.FindParams): CodeEditor.IEditor[];
+    find(params: ISources.FindParams): ISources.IEditor[];
 
     /**
      * Open a read-only editor in the main area.
@@ -696,6 +703,24 @@ export namespace IDebugger {
    */
   export namespace ISources {
     /**
+     * Source editor interface
+     */
+    export interface IEditor {
+      /**
+       * Editor getter
+       */
+      get(): CodeEditor.IEditor | null;
+      /**
+       * Reveal editor
+       */
+      reveal(): Promise<void>;
+      /**
+       * Editor source text
+       */
+      src: ISharedText;
+    }
+
+    /**
      * Unified parameters for the find method
      */
     export type FindParams = {
@@ -914,7 +939,7 @@ export namespace IDebugger {
     /**
      * The kernel sources UI model.
      */
-    export interface IKernelSources {
+    export interface IKernelSources extends IDisposable {
       /**
        * The kernel source.
        */

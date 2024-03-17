@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copyright (c) Jupyter Development Team.
+# Distributed under the terms of the Modified BSD License.
+
 #
 # JupyterLab documentation build configuration file, created by
 # sphinx-quickstart on Thu Jan  4 15:10:23 2018.
@@ -27,9 +30,8 @@ import time
 from collections import ChainMap
 from functools import partial
 from pathlib import Path
-from typing import List
 from subprocess import check_call
-
+from typing import List
 
 HERE = Path(__file__).parent.resolve()
 
@@ -88,7 +90,7 @@ release = version_ns["__version__"]
 # for a list of supported languages.
 #
 # This is also used if you do content translation via gettext catalogs.
-# language = None # Must be set from the command line to generate various languages
+language = "en"  # Must be set from the command line to generate various languages
 
 locale_dirs = ["locale/"]
 gettext_compact = False
@@ -152,20 +154,20 @@ def copy_code_files(temp_folder: Path):
         if file == "packages/settingregistry/src/plugin-schema.json":
             schema = json.loads(Path(target).read_text())
 
-            partial_schema = ChainMap(
-                schema.get("definitions", {}), schema.get("properties", {})
-            )
+            partial_schema = ChainMap(schema.get("definitions", {}), schema.get("properties", {}))
             for key in partial_schema:
                 fragment = target.parent / f"{key}.json"
                 with fragment.open("w") as f:
                     json.dump({key: partial_schema[key]}, f, indent=2)
 
+
 IMAGES_FOLDER = "images"
 AUTOMATED_SCREENSHOTS_FOLDER = "galata/test/documentation"
 
+
 def copy_automated_screenshots(temp_folder: Path) -> List[Path]:
     """Copy PlayWright automated screenshots in documentation folder.
-    
+
     Args:
         temp_folder: Target directory in which to copy the file
     Returns:
@@ -178,12 +180,43 @@ def copy_automated_screenshots(temp_folder: Path) -> List[Path]:
     src = root / AUTOMATED_SCREENSHOTS_FOLDER
 
     copied_files = []
-    for img in src.rglob('*.png'):
-        target = temp_folder / (img.name.replace('-documentation-linux', ''))
+    for img in src.rglob("*.png"):
+        target = temp_folder / (img.name.replace("-documentation-linux", ""))
         shutil.copyfile(str(img), str(target))
         copied_files.append(target)
 
     return copied_files
+
+
+COMMANDS_LIST_PATH = "commands.test.ts-snapshots/commandsList-documentation-linux.json"
+COMMANDS_LIST_DOC = "user/commands_list.md"
+
+
+def document_commands_list(temp_folder: Path) -> None:
+    """Generate the command list documentation page for application extraction."""
+    list_path = HERE.parent.parent / AUTOMATED_SCREENSHOTS_FOLDER / COMMANDS_LIST_PATH
+
+    commands_list = json.loads(list_path.read_text())
+
+    template = """| Command id | Label | Shortcuts |
+| ---------- | ----- | --------- |
+"""
+
+    for command in sorted(commands_list, key=lambda c: c["id"]):
+        for key in ("id", "label", "caption"):
+            if key not in command:
+                command[key] = ""
+            else:
+                command[key] = command[key].replace("\n", " ")
+        shortcuts = command.get("shortcuts", [])
+        command["shortcuts"] = (
+            "<kbd>" + "</kbd>, <kbd>".join(shortcuts) + "</kbd>" if len(shortcuts) else ""
+        )
+
+        template += "| `{id}` | {label} | {shortcuts} |\n".format(**command)
+
+    (temp_folder / COMMANDS_LIST_DOC).write_text(template)
+
 
 # -- Options for HTML output ----------------------------------------------
 
@@ -358,5 +391,7 @@ def setup(app):
 
         for f in tmp_files:
             f.unlink()
+
+    document_commands_list(Path(app.srcdir))
 
     app.connect("build-finished", partial(clean_code_files, tmp_files))

@@ -1,3 +1,6 @@
+.. Copyright (c) Jupyter Development Team.
+.. Distributed under the terms of the Modified BSD License.
+
 .. _language:
 
 Localization and language
@@ -9,7 +12,7 @@ the display language of the user interface.
 Language packs
 --------------
 
-To be able to provide a new display language, you will need to 
+To be able to provide a new display language, you will need to
 install a language pack.
 
 Visit the `language packs repository <https://github.com/jupyterlab/language-packs/>`__

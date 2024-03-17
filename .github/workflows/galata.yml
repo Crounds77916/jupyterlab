@@ -1,20 +1,22 @@
 name: UI Tests
 
 on:
+  issue_comment:
+    types: [created]
   push:
     branches:
       - master
   pull_request:
-    branches: '*'
 
 jobs:
   test:
     name: Visual Regression Tests
+    if: ${{ (github.event_name != 'issue_comment') || (github.event.issue.pull_request && (contains(github.event.comment.body, 'Galata snapshots updated.'))) }}
     timeout-minutes: 80
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Base Setup
         uses: jupyterlab/maintainer-tools/.github/actions/base-setup@v1
@@ -53,7 +55,7 @@ jobs:
 
       - name: Upload Galata Test assets
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: jupyterlab-galata-test-assets
           path: |
@@ -62,7 +64,7 @@ jobs:
 
       - name: Upload Galata Test report
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: jupyterlab-galata-report
           path: |
@@ -75,6 +77,7 @@ jobs:
 
   test-documentation:
     name: Visual Regression Documentation
+    if: ${{ (github.event_name != 'issue_comment') || (github.event.issue.pull_request && (contains(github.event.comment.body, 'Documentation snapshots updated.'))) }}
     # Python version is frozen through strategy.matrix.python-version
     # Python dependencies are frozen in the installation step
     # Note: IPython is among the frozen package
@@ -86,12 +89,12 @@ jobs:
         python-version: ['3.9.9']
     steps:
       - name: Checkout JupyterLab
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           path: core
 
       - name: Checkout demo project
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: jupyterlab/jupyterlab-demo
           ref: master
@@ -154,7 +157,7 @@ jobs:
 
       - name: Upload Galata Test assets
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: jupyterlab-documentation-test-assets
           path: |
@@ -162,18 +165,16 @@ jobs:
 
       - name: Upload Galata Test report
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: jupyterlab-documentation-report
           path: |
             core/galata/playwright-report
 
-
       - name: Stop JupyterLab
         if: always()
         run: |
           kill -s SIGTERM $(pgrep jupyter-lab)
-
 
       - name: Print JupyterLab logs
         if: always()

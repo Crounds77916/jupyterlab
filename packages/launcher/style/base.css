@@ -142,7 +142,7 @@
 
 .jp-LauncherCard[data-category='Notebook'] .jp-LauncherCard-noKernelIcon {
   /* This color is copied from the notebook icon. */
-  color: #ef6c00;
+  color: var(--jp-jupyter-icon-color);
 }
 
 .jp-LauncherCard[data-category='Console'] .jp-LauncherCard-noKernelIcon {
@@ -166,6 +166,7 @@
   line-height: 14px;
   font-size: 12px;
   overflow: hidden;
+  margin: auto;
 }
 
 /* kernel icons */
@@ -175,4 +176,7 @@
   height: var(--jp-private-launcher-large-icon-size);
   margin: 0;
   padding: 0;
+
+  /* Preserve image aspect ratio */
+  object-fit: contain;
 }

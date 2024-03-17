@@ -1,9 +1,7 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { CodeCellModel } from '@jupyterlab/cells';
 import { DocumentRegistry } from '@jupyterlab/docregistry';
-import { IModelDB } from '@jupyterlab/observables';
 import { Contents } from '@jupyterlab/services';
 import { INotebookModel, NotebookModel } from './model';
 
@@ -11,23 +9,15 @@ import { INotebookModel, NotebookModel } from './model';
  * A model factory for notebooks.
  */
 export class NotebookModelFactory
-  implements DocumentRegistry.IModelFactory<INotebookModel> {
+  implements DocumentRegistry.IModelFactory<INotebookModel>
+{
   /**
    * Construct a new notebook model factory.
    */
   constructor(options: NotebookModelFactory.IOptions) {
     this._disableDocumentWideUndoRedo =
       options.disableDocumentWideUndoRedo || false;
-    const codeCellContentFactory = options.codeCellContentFactory;
-    this.contentFactory =
-      options.contentFactory ||
-      new NotebookModel.ContentFactory({ codeCellContentFactory });
   }
-
-  /**
-   * The content model factory used by the NotebookModelFactory.
-   */
-  readonly contentFactory: NotebookModel.IContentFactory;
 
   /**
    * Define the disableDocumentWideUndoRedo property.
@@ -80,15 +70,11 @@ export class NotebookModelFactory
    */
   createNew(
     languagePreference?: string,
-    modelDB?: IModelDB,
-    isInitialized?: boolean
+    collaborationEnabled?: boolean
   ): INotebookModel {
-    const contentFactory = this.contentFactory;
     return new NotebookModel({
       languagePreference,
-      contentFactory,
-      modelDB,
-      isInitialized,
+      collaborationEnabled,
       disableDocumentWideUndoRedo: this._disableDocumentWideUndoRedo
     });
   }
@@ -104,7 +90,6 @@ export class NotebookModelFactory
    * Defines if the document can be undo/redo.
    */
   private _disableDocumentWideUndoRedo: boolean;
-
   private _disposed = false;
 }
 
@@ -120,16 +105,5 @@ export namespace NotebookModelFactory {
      * Defines if the document can be undo/redo.
      */
     disableDocumentWideUndoRedo?: boolean;
-
-    /**
-     * The factory for code cell content.
-     */
-    codeCellContentFactory?: CodeCellModel.IContentFactory;
-
-    /**
-     * The content factory used by the NotebookModelFactory.  If
-     * given, it will supersede the `codeCellContentFactory`.
-     */
-    contentFactory?: NotebookModel.IContentFactory;
   }
 }

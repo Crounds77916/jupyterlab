@@ -11,6 +11,7 @@ dev_mode/workspaces
 dev_mode/stats.json
 
 docs/_build
+docs/source/user/commands_list.md
 docs/api
 **/docs/source/_build
 
@@ -35,6 +36,7 @@ ui-tests/test-output
 # Remove after next release
 jupyterlab/imports.css
 
+packages/codemirror/test/foo*.js
 packages/nbconvert-css/style/
 packages/services/examples/node/config.json
 packages/services/examples/browser/tmp
@@ -121,6 +123,10 @@ junit.xml
 # ms IDE stuff
 *.code-workspace
 .history
-.vscode/settings.json
+.vscode/*
+!.vscode/extension.json
 
 .jupyter_releaser_checkout
+
+# generated LSP interfaces
+packages/lsp/src/_*

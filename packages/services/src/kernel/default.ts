@@ -629,9 +629,10 @@ export class KernelConnection implements Kernel.IKernelConnection {
       session: this._clientId,
       content
     });
-    return Private.handleShellMessage(this, msg) as Promise<
-      KernelMessage.ICompleteReplyMsg
-    >;
+    return Private.handleShellMessage(
+      this,
+      msg
+    ) as Promise<KernelMessage.ICompleteReplyMsg>;
   }
 
   /**
@@ -653,9 +654,10 @@ export class KernelConnection implements Kernel.IKernelConnection {
       session: this._clientId,
       content: content
     });
-    return Private.handleShellMessage(this, msg) as Promise<
-      KernelMessage.IInspectReplyMsg
-    >;
+    return Private.handleShellMessage(
+      this,
+      msg
+    ) as Promise<KernelMessage.IInspectReplyMsg>;
   }
 
   /**
@@ -677,9 +679,10 @@ export class KernelConnection implements Kernel.IKernelConnection {
       session: this._clientId,
       content
     });
-    return Private.handleShellMessage(this, msg) as Promise<
-      KernelMessage.IHistoryReplyMsg
-    >;
+    return Private.handleShellMessage(
+      this,
+      msg
+    ) as Promise<KernelMessage.IHistoryReplyMsg>;
   }
 
   /**
@@ -783,9 +786,10 @@ export class KernelConnection implements Kernel.IKernelConnection {
       session: this._clientId,
       content
     });
-    return Private.handleShellMessage(this, msg) as Promise<
-      KernelMessage.IIsCompleteReplyMsg
-    >;
+    return Private.handleShellMessage(
+      this,
+      msg
+    ) as Promise<KernelMessage.IIsCompleteReplyMsg>;
   }
 
   /**
@@ -805,9 +809,10 @@ export class KernelConnection implements Kernel.IKernelConnection {
       session: this._clientId,
       content
     });
-    return Private.handleShellMessage(this, msg) as Promise<
-      KernelMessage.ICommInfoReplyMsg
-    >;
+    return Private.handleShellMessage(
+      this,
+      msg
+    ) as Promise<KernelMessage.ICommInfoReplyMsg>;
   }
 
   /**
@@ -816,7 +821,10 @@ export class KernelConnection implements Kernel.IKernelConnection {
    * #### Notes
    * See [Messaging in Jupyter](https://jupyter-client.readthedocs.io/en/latest/messaging.html#messages-on-the-stdin-router-dealer-sockets).
    */
-  sendInputReply(content: KernelMessage.IInputReplyMsg['content']): void {
+  sendInputReply(
+    content: KernelMessage.IInputReplyMsg['content'],
+    parent_header: KernelMessage.IInputReplyMsg['parent_header']
+  ): void {
     const msg = KernelMessage.createMessage({
       msgType: 'input_reply',
       channel: 'stdin',
@@ -824,6 +832,7 @@ export class KernelConnection implements Kernel.IKernelConnection {
       session: this._clientId,
       content
     });
+    msg.parent_header = parent_header;
 
     this._sendMessage(msg);
     this._anyMessage.emit({ msg, direction: 'send' });
@@ -991,12 +1000,12 @@ export class KernelConnection implements Kernel.IKernelConnection {
       // We've seen it before, update existing outputs with same display_id
       // by handling display_data as update_display_data.
       const updateMsg: KernelMessage.IMessage = {
-        header: (JSONExt.deepCopy(
-          (msg.header as unknown) as JSONObject
-        ) as unknown) as KernelMessage.IHeader,
-        parent_header: (JSONExt.deepCopy(
-          (msg.parent_header as unknown) as JSONObject
-        ) as unknown) as KernelMessage.IHeader,
+        header: JSONExt.deepCopy(
+          msg.header as unknown as JSONObject
+        ) as unknown as KernelMessage.IHeader,
+        parent_header: JSONExt.deepCopy(
+          msg.parent_header as unknown as JSONObject
+        ) as unknown as KernelMessage.IHeader,
         metadata: JSONExt.deepCopy(msg.metadata),
         content: JSONExt.deepCopy(msg.content as JSONObject),
         channel: msg.channel,
@@ -1505,8 +1514,14 @@ export class KernelConnection implements Kernel.IKernelConnection {
           timeout / 1000
         )} seconds.`
       );
-      // Try reconnection without subprotocols.
-      this._reconnectTimeout = setTimeout(this._createSocket, timeout, false);
+      // Try reconnection with subprotocols if the server had supported them.
+      // Otherwise, try reconnection without subprotocols.
+      const useProtocols = this._selectedProtocol !== '' ? true : false;
+      this._reconnectTimeout = setTimeout(
+        this._createSocket,
+        timeout,
+        useProtocols
+      );
       this._reconnectAttempt += 1;
     } else {
       this._updateConnectionStatus('disconnected');
@@ -1542,6 +1557,8 @@ export class KernelConnection implements Kernel.IKernelConnection {
       this._updateStatus('dead');
       throw new Error(`Unknown kernel wire protocol:  ${this._ws!.protocol}`);
     }
+    // Remember the kernel wire protocol selected by the server.
+    this._selectedProtocol = this._ws!.protocol;
     this._ws!.onclose = this._onWSClose;
     this._ws!.onerror = this._onWSClose;
     this._updateConnectionStatus('connected');
@@ -1621,6 +1638,7 @@ export class KernelConnection implements Kernel.IKernelConnection {
   private _supportedProtocols: string[] = Object.values(
     KernelMessage.supportedKernelWebSocketProtocols
   );
+  private _selectedProtocol: string = '';
 
   private _futures = new Map<
     string,

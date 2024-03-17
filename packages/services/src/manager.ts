@@ -9,13 +9,15 @@ import { ISignal, Signal } from '@lumino/signaling';
 
 import { Builder, BuildManager } from './builder';
 
-import { NbConvert, NbConvertManager } from './nbconvert';
-
 import { Contents, ContentsManager } from './contents';
+
+import { Event, EventManager } from './event';
 
 import { Kernel, KernelManager } from './kernel';
 
 import { KernelSpec, KernelSpecManager } from './kernelspec';
+
+import { NbConvert, NbConvertManager } from './nbconvert';
 
 import { ServerConnection } from './serverconnection';
 
@@ -24,6 +26,8 @@ import { Session, SessionManager } from './session';
 import { Setting, SettingManager } from './setting';
 
 import { Terminal, TerminalManager } from './terminal';
+
+import { User, UserManager } from './user';
 
 import { Workspace, WorkspaceManager } from './workspace';
 
@@ -44,6 +48,7 @@ export class ServiceManager implements ServiceManager.IManager {
     const kernelManager = options.kernels || new KernelManager(normalized);
     this.serverSettings = serverSettings;
     this.contents = options.contents || new ContentsManager(normalized);
+    this.events = options.events || new EventManager(normalized);
     this.sessions =
       options.sessions ||
       new SessionManager({
@@ -56,13 +61,14 @@ export class ServiceManager implements ServiceManager.IManager {
     this.workspaces = options.workspaces || new WorkspaceManager(normalized);
     this.nbconvert = options.nbconvert || new NbConvertManager(normalized);
     this.kernelspecs = options.kernelspecs || new KernelSpecManager(normalized);
+    this.user = options.user || new UserManager(normalized);
 
-    // Relay connection failures from the service managers that poll
-    // the server for current information.
+    // Proxy all connection failures from the individual service managers.
     this.kernelspecs.connectionFailure.connect(this._onConnectionFailure, this);
     this.sessions.connectionFailure.connect(this._onConnectionFailure, this);
     this.terminals.connectionFailure.connect(this._onConnectionFailure, this);
 
+    // Define promises that need to be resolved before service manager is ready.
     const readyList = [this.sessions.ready, this.kernelspecs.ready];
     if (this.terminals.isAvailable()) {
       readyList.push(this.terminals.ready);
@@ -98,6 +104,7 @@ export class ServiceManager implements ServiceManager.IManager {
     Signal.clearData(this);
 
     this.contents.dispose();
+    this.events.dispose();
     this.sessions.dispose();
     this.terminals.dispose();
   }
@@ -133,9 +140,19 @@ export class ServiceManager implements ServiceManager.IManager {
   readonly contents: Contents.IManager;
 
   /**
+   * The event manager instance.
+   */
+  readonly events: Event.IManager;
+
+  /**
    * Get the terminal manager instance.
    */
   readonly terminals: Terminal.IManager;
+
+  /**
+   * Get the user manager instance.
+   */
+  readonly user: User.IManager;
 
   /**
    * Get the workspace manager instance.
@@ -221,6 +238,8 @@ export namespace ServiceManager {
   interface IManagers {
     /**
      * The builder for the manager.
+     *
+     * @deprecated will be removed in JupyterLab v5
      */
     readonly builder: Builder.IManager;
 
@@ -228,6 +247,14 @@ export namespace ServiceManager {
      * The contents manager for the manager.
      */
     readonly contents: Contents.IManager;
+
+    /**
+     * The events service manager.
+     *
+     * #### Notes
+     * The events manager is optional until JupyterLab 4.
+     */
+    readonly events?: Event.IManager;
 
     /**
      * A promise that fulfills when the manager is initially ready.
@@ -258,6 +285,11 @@ export namespace ServiceManager {
      * The terminals manager for the manager.
      */
     readonly terminals: Terminal.IManager;
+
+    /**
+     * The user manager for the manager.
+     */
+    readonly user: User.IManager;
 
     /**
      * The workspace manager for the manager.

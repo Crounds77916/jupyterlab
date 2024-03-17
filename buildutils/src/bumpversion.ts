@@ -3,7 +3,7 @@
 | Distributed under the terms of the Modified BSD License.
 |----------------------------------------------------------------------------*/
 
-import commander from 'commander';
+import { program as commander } from 'commander';
 import * as utils from './utils';
 
 // Specify the program signature.
@@ -14,7 +14,7 @@ commander
   .option('--skip-commit', 'Whether to skip commit changes')
   .arguments('<spec>')
   .action((spec: any, opts: any) => {
-    utils.exitOnUuncaughtException();
+    utils.exitOnUncaughtException();
 
     // Get the previous version.
     const prev = utils.getPythonVersion();

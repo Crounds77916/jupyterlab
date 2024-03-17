@@ -14,7 +14,7 @@ import {
   nullTranslator,
   TranslationBundle
 } from '@jupyterlab/translation';
-import { each, find, IterableOrArrayLike } from '@lumino/algorithm';
+import { find } from '@lumino/algorithm';
 import { PromiseDelegate, UUID } from '@lumino/coreutils';
 import { IDisposable, IObservableDisposable } from '@lumino/disposable';
 import { ISignal, Signal } from '@lumino/signaling';
@@ -1258,7 +1258,7 @@ export namespace SessionContext {
     /**
      * The current running sessions.
      */
-    sessions?: IterableOrArrayLike<Session.IModel>;
+    sessions?: Iterable<Session.IModel>;
   }
 
   /**
@@ -1431,13 +1431,8 @@ namespace Private {
     options: SessionContext.IKernelSearch
   ): string | null {
     const { specs, preference } = options;
-    const {
-      name,
-      language,
-      shouldStart,
-      canStart,
-      autoStartDefault
-    } = preference;
+    const { name, language, shouldStart, canStart, autoStartDefault } =
+      preference;
 
     if (!specs || shouldStart === false || canStart === false) {
       return null;
@@ -1605,7 +1600,7 @@ namespace Private {
     const matchingSessions: Session.IModel[] = [];
     const otherSessions: Session.IModel[] = [];
 
-    each(sessions, session => {
+    for (const session of sessions) {
       if (
         language &&
         session.kernel &&
@@ -1616,7 +1611,7 @@ namespace Private {
       } else if (session.kernel?.id !== id) {
         otherSessions.push(session);
       }
-    });
+    }
 
     const matching = document.createElement('optgroup');
     matching.label = trans.__('Use Kernel from Preferred Session');
@@ -1627,10 +1622,10 @@ namespace Private {
         return a.path.localeCompare(b.path);
       });
 
-      each(matchingSessions, session => {
+      for (const session of matchingSessions) {
         const name = session.kernel ? displayNames[session.kernel.name] : '';
         matching.appendChild(optionForSession(session, name, translator));
-      });
+      }
     }
 
     const otherSessionsNode = document.createElement('optgroup');
@@ -1642,14 +1637,14 @@ namespace Private {
         return a.path.localeCompare(b.path);
       });
 
-      each(otherSessions, session => {
+      for (const session of otherSessions) {
         const name = session.kernel
           ? displayNames[session.kernel.name] || session.kernel.name
           : '';
         otherSessionsNode.appendChild(
           optionForSession(session, name, translator)
         );
-      });
+      }
     }
   }
 

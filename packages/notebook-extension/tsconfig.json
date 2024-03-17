@@ -34,6 +34,9 @@
       "path": "../docregistry"
     },
     {
+      "path": "../documentsearch"
+    },
+    {
       "path": "../filebrowser"
     },
     {
@@ -41,6 +44,9 @@
     },
     {
       "path": "../logconsole"
+    },
+    {
+      "path": "../lsp"
     },
     {
       "path": "../mainmenu"
@@ -71,6 +77,9 @@
     },
     {
       "path": "../statusbar"
+    },
+    {
+      "path": "../toc"
     },
     {
       "path": "../translation"

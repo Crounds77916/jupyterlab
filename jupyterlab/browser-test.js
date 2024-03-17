@@ -1,8 +1,14 @@
+/*
+ * Copyright (c) Jupyter Development Team.
+ * Distributed under the terms of the Modified BSD License.
+ */
+
 const playwright = require('playwright');
 const inspect = require('util').inspect;
 const path = require('path');
 const fs = require('fs');
 
+// eslint-disable-next-line no-redeclare
 const URL = process.argv[2];
 const BROWSER_VAR = 'JLAB_BROWSER_TYPE';
 const BROWSER = process.env[BROWSER_VAR] || 'chromium';

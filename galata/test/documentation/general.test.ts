@@ -1,13 +1,12 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { galata, test } from '@jupyterlab/galata';
-import { expect } from '@playwright/test';
+import { expect, galata, test } from '@jupyterlab/galata';
 import {
   generateArrow,
-  generateCaptureArea,
   positionMouse,
-  setLeftSidebarWidth
+  positionMouseOver,
+  setSidebarWidth
 } from './utils';
 
 test.use({
@@ -17,7 +16,8 @@ test.use({
 });
 
 test.describe('General', () => {
-  test('Welcome', async ({ page }) => {
+  // FIXME restore when ipywidgets support lumino 2
+  test.skip('Welcome', async ({ page }) => {
     await galata.Mock.freezeContentLastModified(page);
     await page.goto();
     await page.addStyleTag({
@@ -26,7 +26,7 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
+    await setSidebarWidth(page);
 
     // README.md in preview
     await page.click('text=README.md', {
@@ -96,20 +96,12 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
+    await setSidebarWidth(page);
 
     await page.dblclick('[aria-label="File Browser Section"] >> text=data');
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 31, left: 0, width: 283, height: 400 })]
-    );
-
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 31, x: 0, width: 283, height: 400 } })
     ).toMatchSnapshot('interface_left.png');
   });
 
@@ -121,21 +113,14 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
-
     await page.notebook.createNew();
     await page.click('[title="Property Inspector"]');
-
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 32, left: 997, width: 283, height: 400 })]
-    );
+    await setSidebarWidth(page, 251, 'right');
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({
+        clip: { y: 32, x: 997, width: 283, height: 400 }
+      })
     ).toMatchSnapshot('interface_right.png');
   });
 
@@ -144,16 +129,8 @@ test.describe('General', () => {
 
     await page.click('[title="Running Terminals and Kernels"]');
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 27, left: 0, width: 283, height: 400 })]
-    );
-
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 27, x: 0, width: 283, height: 400 } })
     ).toMatchSnapshot('interface_tabs.png');
   });
 
@@ -163,16 +140,8 @@ test.describe('General', () => {
 
     await page.click('text="Tabs"');
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 0, left: 210, width: 700, height: 350 })]
-    );
-
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 0, x: 210, width: 700, height: 350 } })
     ).toMatchSnapshot('interface_tabs_menu.png');
   });
 
@@ -187,19 +156,16 @@ test.describe('General', () => {
     // Hide file browser
     await page.click('[title^="File Browser"]');
 
-    // Inject arrow and capture zone
+    // Inject arrow
     await page.evaluate(
-      ([arrow, zone]) => {
-        document.body.insertAdjacentHTML('beforeend', arrow + zone);
+      ([arrow]) => {
+        document.body.insertAdjacentHTML('beforeend', arrow);
       },
-      [
-        generateArrow({ x: 50, y: 55 }, -30),
-        generateCaptureArea({ top: 27, left: 0, width: 283, height: 400 })
-      ]
+      [generateArrow({ x: 50, y: 55 }, -30)]
     );
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 27, x: 0, width: 283, height: 400 } })
     ).toMatchSnapshot('files_menu_left.png');
   });
 
@@ -216,21 +182,28 @@ test.describe('General', () => {
 
     await page.click('text=File');
     await page.mouse.move(70, 40);
-    await page.click('ul[role="menu"] >> text=New');
+    const fileMenuNewItem = await page.waitForSelector(
+      'ul[role="menu"] >> text=New'
+    );
+    await fileMenuNewItem.click();
 
-    // Inject mouse and capture zone
+    // Inject mouse
     await page.evaluate(
-      ([mouse, zone]) => {
-        document.body.insertAdjacentHTML('beforeend', mouse + zone);
+      ([mouse]) => {
+        document.body.insertAdjacentHTML('beforeend', mouse);
       },
       [
-        positionMouse({ x: 35, y: 35 }),
-        generateCaptureArea({ top: 0, left: 0, width: 620, height: 400 })
+        await positionMouseOver(fileMenuNewItem, {
+          left: 0,
+          // small negative offset to place the cursor before "New"
+          offsetLeft: -17,
+          top: 0.5
+        })
       ]
     );
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 0, x: 0, width: 620, height: 400 } })
     ).toMatchSnapshot('files_menu_top.png');
   });
 
@@ -242,7 +215,7 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
+    await setSidebarWidth(page);
 
     await page.dblclick(
       '[aria-label="File Browser Section"] >> text=notebooks'
@@ -251,19 +224,18 @@ test.describe('General', () => {
     await page.click('text=Lorenz.ipynb', { button: 'right' });
     await page.hover('text=Copy Shareable Link');
 
-    // Inject mouse and capture zone
+    const itemHandle = await page.$('text=Copy Shareable Link');
+
+    // Inject mouse
     await page.evaluate(
-      ([mouse, zone]) => {
-        document.body.insertAdjacentHTML('beforeend', mouse + zone);
+      ([mouse]) => {
+        document.body.insertAdjacentHTML('beforeend', mouse);
       },
-      [
-        positionMouse({ x: 260, y: 350 }),
-        generateCaptureArea({ top: 0, left: 0, width: 500, height: 500 })
-      ]
+      [await positionMouseOver(itemHandle, { top: 0.5, left: 0.55 })]
     );
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 0, x: 0, width: 500, height: 500 } })
     ).toMatchSnapshot('files_shareable_link.png');
   });
 
@@ -283,19 +255,16 @@ test.describe('General', () => {
     await page.click('ul[role="menu"] >> text=New');
     await page.hover('ul[role="menu"] >> text=Text File');
 
-    // Inject mouse and capture zone
+    // Inject mouse
     await page.evaluate(
-      ([mouse, zone]) => {
-        document.body.insertAdjacentHTML('beforeend', mouse + zone);
+      ([mouse]) => {
+        document.body.insertAdjacentHTML('beforeend', mouse);
       },
-      [
-        positionMouse({ x: 500, y: 110 }),
-        generateCaptureArea({ top: 0, left: 0, width: 620, height: 400 })
-      ]
+      [positionMouse({ x: 500, y: 110 })]
     );
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 0, x: 0, width: 620, height: 400 } })
     ).toMatchSnapshot('files_create_text_file.png');
   });
 
@@ -327,7 +296,7 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
+    await setSidebarWidth(page);
 
     // Open jupyterlab.md
     await page.dblclick(
@@ -338,20 +307,12 @@ test.describe('General', () => {
     await page.click('text=Settings');
     await page.click('ul[role="menu"] >> text=Text Editor Key Map');
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 0, left: 260, width: 600, height: 450 })]
-    );
-
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 0, x: 260, width: 600, height: 450 } })
     ).toMatchSnapshot('file_editor_settings.png');
   });
 
-  test('Notebook', async ({ page }) => {
+  test('Notebook', async ({ page }, testInfo) => {
     await galata.Mock.freezeContentLastModified(page);
     await page.goto();
     await page.addStyleTag({
@@ -360,7 +321,7 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
+    await setSidebarWidth(page);
 
     // Open Data.ipynb
     await page.dblclick(
@@ -380,10 +341,53 @@ test.describe('General', () => {
     );
     await page.notebook.run();
 
+    if (testInfo.config.updateSnapshots !== 'none') {
+      // Wait a bit for the map to load when updating the snapshots
+      await page.waitForTimeout(300);
+    }
+
     // Relax threshold as displayed map may change a bit (in particular text positioning)
     expect(await page.screenshot()).toMatchSnapshot('notebook_ui.png', {
       threshold: 0.3
     });
+  });
+
+  test('Heading anchor', async ({ page }, testInfo) => {
+    await page.goto();
+    await setSidebarWidth(page);
+
+    // Open Data.ipynb
+    await page.dblclick(
+      '[aria-label="File Browser Section"] >> text=notebooks'
+    );
+    await page.dblclick('text=Data.ipynb');
+
+    const heading = await page.waitForSelector(
+      'h2[id="Open-a-CSV-file-using-Pandas"]'
+    );
+    const anchor = await heading.$('text=¶');
+    await heading.hover();
+
+    // Get parent cell which includes the heading
+    const cell = await heading.evaluateHandle(node => node.closest('.jp-Cell'));
+
+    // Inject mouse
+    await page.evaluate(
+      ([mouse]) => {
+        document.body.insertAdjacentHTML('beforeend', mouse);
+      },
+      [
+        await positionMouseOver(anchor, {
+          left: 1,
+          offsetLeft: 5,
+          top: 0.25
+        })
+      ]
+    );
+
+    expect(await cell.screenshot()).toMatchSnapshot(
+      'notebook_heading_anchor_link.png'
+    );
   });
 
   test('Terminals', async ({ page }) => {
@@ -395,7 +399,7 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
+    await setSidebarWidth(page);
 
     // Open Data.ipynb
     await page.dblclick(
@@ -429,7 +433,7 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
+    await setSidebarWidth(page);
 
     // Open a terminal
     await page.click('text=File');
@@ -444,16 +448,8 @@ test.describe('General', () => {
 
     await page.click('[title="Running Terminals and Kernels"]');
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 27, left: 0, width: 283, height: 400 })]
-    );
-
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 27, x: 0, width: 283, height: 400 } })
     ).toMatchSnapshot('running_layout.png');
   });
 
@@ -475,7 +471,7 @@ test.describe('General', () => {
       }`
     });
 
-    await setLeftSidebarWidth(page);
+    await setSidebarWidth(page);
 
     await page.click('text=README.md', {
       button: 'right'
@@ -483,16 +479,8 @@ test.describe('General', () => {
     await page.click('text=Open With');
     await page.hover('text=Markdown Preview');
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 0, left: 0, width: 700, height: 500 })]
-    );
-
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 0, x: 0, width: 700, height: 500 } })
     ).toMatchSnapshot('file_formats_open_with.png');
   });
 
@@ -519,7 +507,7 @@ test.describe('General', () => {
     await page.click('text=File');
     await page.click('ul[role="menu"] >> text=New Console for Notebook');
 
-    await page.click('.jp-CodeConsole-input >> pre[role="presentation"]');
+    await page.click('.jp-CodeConsole-input >> .cm-content');
     await page.keyboard.type(
       "from IPython.display import display, HTML\ndisplay(HTML('<h1>Hello World</h1>'))"
     );
@@ -577,7 +565,12 @@ test.describe('General', () => {
       "from IPython.display import display\nfrom vdom.helpers import h1, p, img, div, b\n\ndisplay(\ndiv(\nh1('Our Incredibly Declarative Example'),\np('Can you believe we wrote this ', b('in Python'), '?'),\nimg(src='https://turnoff.us/image/en/death-and-the-programmer.png', style={'height': '268px'}),\np('What will ', b('you'), ' create next?')))"
     );
 
-    await page.notebook.run();
+    await Promise.all([
+      page.waitForResponse(
+        'https://turnoff.us/image/en/death-and-the-programmer.png'
+      ),
+      page.notebook.run()
+    ]);
 
     expect(await page.screenshot()).toMatchSnapshot(
       'file_formats_nteract_vdom.png'
@@ -593,7 +586,7 @@ async function openOverview(page) {
     }`
   });
 
-  await setLeftSidebarWidth(page);
+  await setSidebarWidth(page);
 
   // Open Data.ipynb
   await page.dblclick('[aria-label="File Browser Section"] >> text=notebooks');

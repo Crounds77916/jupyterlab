@@ -2,12 +2,12 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import * as nbformat from '@jupyterlab/nbformat';
-import { Session, TerminalAPI, Workspace } from '@jupyterlab/services';
-import { ISettingRegistry } from '@jupyterlab/settingregistry';
-import { Browser, Page } from '@playwright/test';
+import type * as nbformat from '@jupyterlab/nbformat';
+import type { Session, TerminalAPI, Workspace } from '@jupyterlab/services';
+import type { ISettingRegistry } from '@jupyterlab/settingregistry';
+import type { JSONObject } from '@lumino/coreutils';
+import type { APIRequestContext, Browser, Page } from '@playwright/test';
 import * as json5 from 'json5';
-import fetch from 'node-fetch';
 import { ContentsHelper } from './contents';
 import { PerformanceHelper } from './helpers';
 import {
@@ -25,6 +25,9 @@ export namespace galata {
    * - Deactivate codemirror cursor blinking to avoid noise in screenshots
    */
   export const DEFAULT_SETTINGS: Record<string, any> = {
+    '@jupyterlab/apputils-extension:notification': {
+      fetchNews: 'false'
+    },
     '@jupyterlab/fileeditor-extension:plugin': {
       editorConfig: { cursorBlinkRate: 0 }
     },
@@ -125,6 +128,7 @@ export namespace galata {
     appPath: string,
     autoGoto: boolean,
     baseURL: string,
+    mockConfig: boolean | Record<string, unknown>,
     mockSettings: boolean | Record<string, unknown>,
     mockState: boolean | Record<string, unknown>,
     page: Page,
@@ -142,6 +146,12 @@ export namespace galata {
     );
 
     // Add server mocks
+    if (mockConfig) {
+      const config: Record<string, JSONObject> =
+        typeof mockConfig !== 'boolean' ? ({ ...mockConfig } as any) : {};
+      await Mock.mockConfig(page, config);
+    }
+
     const settings: ISettingRegistry.IPlugin[] = [];
     if (mockSettings) {
       // Settings will be stored in-memory (after loading the initial version from disk)
@@ -183,15 +193,15 @@ export namespace galata {
   /**
    * Create a contents REST API helpers object
    *
-   * @param baseURL Application base URL
+   * @param request Playwright API request context
    * @param page Playwright page model
    * @returns Contents REST API helpers
    */
   export function newContentsHelper(
-    baseURL: string,
+    request?: APIRequestContext,
     page?: Page
   ): ContentsHelper {
-    return new ContentsHelper(baseURL, page);
+    return new ContentsHelper(request, page);
   }
 
   /**
@@ -208,6 +218,7 @@ export namespace galata {
     autoGoto: boolean,
     baseURL: string,
     browser: Browser,
+    mockConfig: boolean | Record<string, unknown>,
     mockSettings: boolean | Record<string, unknown>,
     mockState: boolean | Record<string, unknown>,
     sessions: Map<string, Session.IModel> | null,
@@ -222,6 +233,7 @@ export namespace galata {
       appPath,
       autoGoto,
       baseURL,
+      mockConfig,
       mockSettings,
       mockState,
       page,
@@ -247,6 +259,13 @@ export namespace galata {
    */
   export namespace Routes {
     /**
+     * Config API
+     *
+     * The config section can be found in the named group `section`.
+     */
+    export const config = /.*\/api\/config\/(?<section>\w+)/;
+
+    /**
      * Contents API
      *
      * The content path can be found in the named group `path`.
@@ -255,6 +274,11 @@ export namespace galata {
      * The path will be undefined for the root folder.
      */
     export const contents = /.*\/api\/contents(?<path>\/.+)?\?/;
+
+    /**
+     * Extensions API
+     */
+    export const extensions = /.*\/lab\/api\/extensions.*/;
 
     /**
      * Sessions API
@@ -437,14 +461,11 @@ export namespace galata {
         switch (request.method()) {
           case 'GET': {
             // Proxy the GET request
-            const response = await fetch(request.url(), {
-              headers: await request.allHeaders(),
-              method: request.method()
-            });
-            if (!response.ok) {
+            const response = await ctxt.request.fetch(request);
+            if (!response.ok()) {
               if (!page.isClosed() && !isClosed) {
                 return route.fulfill({
-                  status: response.status,
+                  status: response.status(),
                   body: await response.text()
                 });
               }
@@ -485,19 +506,63 @@ export namespace galata {
      * @param baseURL Application base URL
      * @param runners Session or terminal ids to stop
      * @param type Type of runner; session or terminal
+     * @param request API request context
      * @returns Whether the runners were closed or not
      */
     export async function clearRunners(
-      baseURL: string,
+      request: APIRequestContext,
       runners: string[],
       type: 'sessions' | 'terminals'
     ): Promise<boolean> {
       const responses = await Promise.all(
         [...new Set(runners)].map(id =>
-          fetch(`${baseURL}/api/${type}/${id}`, { method: 'DELETE' })
+          request.fetch(`/api/${type}/${id}`, {
+            method: 'DELETE'
+          })
         )
       );
-      return responses.every(response => response.ok);
+      return responses.every(response => response.ok());
+    }
+
+    /**
+     * Mock config route.
+     *
+     * @param page Page model object
+     * @param config In-memory config
+     */
+    export function mockConfig(
+      page: Page,
+      config: Record<string, JSONObject>
+    ): Promise<void> {
+      return page.route(Routes.config, (route, request) => {
+        const section = Routes.config.exec(request.url())?.groups
+          ?.section as string;
+        switch (request.method()) {
+          case 'GET':
+            return route.fulfill({
+              status: 200,
+              body: JSON.stringify(config[section] ?? {})
+            });
+          case 'PATCH': {
+            const data = request.postDataJSON();
+            // FIXME jupyter-server does a recursive update
+            // We are not doing it here as @jupyterlab/services is actually not recursively
+            // updating the object.
+            config[section] = { ...(config[section] ?? {}), ...data };
+            return route.fulfill({
+              status: 200,
+              body: JSON.stringify(config[section])
+            });
+          }
+          case 'PUT': {
+            const data = request.postDataJSON();
+            config[section] = data;
+            return route.fulfill({ status: 204 });
+          }
+          default:
+            return route.continue();
+        }
+      });
     }
 
     /**
@@ -544,14 +609,11 @@ export namespace galata {
             if (id) {
               if (runners.has(id)) {
                 // Proxy the GET request
-                const response = await fetch(request.url(), {
-                  headers: await request.allHeaders(),
-                  method: request.method()
-                });
-                if (!response.ok) {
+                const response = await ctxt.request.fetch(request);
+                if (!response.ok()) {
                   if (!page.isClosed() && !isClosed) {
                     return route.fulfill({
-                      status: response.status,
+                      status: response.status(),
                       body: await response.text()
                     });
                   }
@@ -579,14 +641,11 @@ export namespace galata {
               }
             } else {
               // Proxy the GET request
-              const response = await fetch(request.url(), {
-                headers: await request.allHeaders(),
-                method: request.method()
-              });
-              if (!response.ok) {
+              const response = await ctxt.request.fetch(request);
+              if (!response.ok()) {
                 if (!page.isClosed() && !isClosed) {
                   return route.fulfill({
-                    status: response.status,
+                    status: response.status(),
                     body: await response.text()
                   });
                 }
@@ -623,15 +682,11 @@ export namespace galata {
           }
           case 'PATCH': {
             // Proxy the PATCH request
-            const response = await fetch(request.url(), {
-              body: request.postDataBuffer()!,
-              headers: await request.allHeaders(),
-              method: request.method()
-            });
-            if (!response.ok) {
+            const response = await ctxt.request.fetch(request);
+            if (!response.ok()) {
               if (!page.isClosed() && !isClosed) {
                 return route.fulfill({
-                  status: response.status,
+                  status: response.status(),
                   body: await response.text()
                 });
               }
@@ -652,15 +707,11 @@ export namespace galata {
           }
           case 'POST': {
             // Proxy the POST request
-            const response = await fetch(request.url(), {
-              body: request.postDataBuffer()!,
-              headers: await request.allHeaders(),
-              method: request.method()
-            });
-            if (!response.ok) {
+            const response = await ctxt.request.fetch(request);
+            if (!response.ok()) {
               if (!page.isClosed() && !isClosed) {
                 return route.fulfill({
-                  status: response.status,
+                  status: response.status(),
                   body: await response.text()
                 });
               }
@@ -750,9 +801,7 @@ export namespace galata {
             if (!id) {
               // Get all settings
               if (settings.length === 0) {
-                const response = await fetch(request.url(), {
-                  headers: request.headers()
-                });
+                const response = await ctxt.request.fetch(request);
                 const loadedSettings = (await response.json())
                   .settings as ISettingRegistry.IPlugin[];
 
@@ -778,9 +827,7 @@ export namespace galata {
               // Get specific settings
               let pluginSettings = settings.find(setting => setting.id === id);
               if (!pluginSettings) {
-                const response = await fetch(request.url(), {
-                  headers: request.headers()
-                });
+                const response = await ctxt.request.fetch(request);
                 pluginSettings = await response.json();
                 if (pluginSettings) {
                   const mocked = mockedSettings[id] ?? {};

@@ -7,10 +7,10 @@
   "include": ["src/*"],
   "references": [
     {
-      "path": "../shared-models"
+      "path": "../coreutils"
     },
     {
-      "path": "../user"
+      "path": "../services"
     }
   ]
 }

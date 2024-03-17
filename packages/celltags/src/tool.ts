@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Jupyter Development Team.
+ * Distributed under the terms of the Modified BSD License.
+ */
+
 import { JupyterFrontEnd } from '@jupyterlab/application';
 import { Cell } from '@jupyterlab/cells';
 import { INotebookTracker, NotebookTools } from '@jupyterlab/notebook';
@@ -7,6 +12,9 @@ import {
   TranslationBundle
 } from '@jupyterlab/translation';
 import { reduce } from '@lumino/algorithm';
+import { JSONExt } from '@lumino/coreutils';
+import { Message } from '@lumino/messaging';
+import { Signal } from '@lumino/signaling';
 import { PanelLayout } from '@lumino/widgets';
 import { AddWidget } from './addwidget';
 import { TagWidget } from './widget';
@@ -55,7 +63,7 @@ export class TagTool extends NotebookTools.Tool {
   checkApplied(name: string): boolean {
     const activeCell = this.tracker?.activeCell;
     if (activeCell) {
-      const tags = activeCell.model.metadata.get('tags') as string[];
+      const tags = activeCell.model.getMetadata('tags') as string[];
       if (tags) {
         return tags.includes(name);
       }
@@ -71,12 +79,10 @@ export class TagTool extends NotebookTools.Tool {
   addTag(name: string): void {
     const cell = this.tracker?.activeCell;
     if (cell) {
-      const oldTags = [
-        ...((cell.model.metadata.get('tags') as string[]) ?? [])
-      ];
+      const oldTags = [...((cell.model.getMetadata('tags') as string[]) ?? [])];
       let tagsToAdd = name.split(/[,\s]+/);
       tagsToAdd = tagsToAdd.filter(tag => tag !== '' && !oldTags.includes(tag));
-      cell.model.metadata.set('tags', oldTags.concat(tagsToAdd));
+      cell.model.setMetadata('tags', oldTags.concat(tagsToAdd));
       this.refreshTags();
       this.loadActiveTags();
     }
@@ -90,13 +96,11 @@ export class TagTool extends NotebookTools.Tool {
   removeTag(name: string): void {
     const cell = this.tracker?.activeCell;
     if (cell) {
-      const oldTags = [
-        ...((cell.model.metadata.get('tags') as string[]) ?? [])
-      ];
+      const oldTags = [...((cell.model.getMetadata('tags') as string[]) ?? [])];
       let tags = oldTags.filter(tag => tag !== name);
-      cell.model.metadata.set('tags', tags);
+      cell.model.setMetadata('tags', tags);
       if (tags.length === 0) {
-        cell.model.metadata.delete('tags');
+        cell.model.deleteMetadata('tags');
       }
       this.refreshTags();
       this.loadActiveTags();
@@ -124,7 +128,7 @@ export class TagTool extends NotebookTools.Tool {
     const allTags = reduce(
       cells,
       (allTags: string[], cell) => {
-        const tags = (cell.metadata.get('tags') as string[]) ?? [];
+        const tags = (cell.getMetadata('tags') as string[]) ?? [];
         return [...allTags, ...tags];
       },
       []
@@ -168,7 +172,9 @@ export class TagTool extends NotebookTools.Tool {
       []
     );
     const validTags = [...new Set(tags)].filter(tag => tag !== '');
-    cell.model.metadata.set('tags', validTags);
+    if (!JSONExt.deepEqual(cell.model.getMetadata('tags') ?? [], validTags)) {
+      cell.model.setMetadata('tags', validTags);
+    }
     this.refreshTags();
     this.loadActiveTags();
   }
@@ -192,7 +198,7 @@ export class TagTool extends NotebookTools.Tool {
    * Upon attach, add label if it doesn't already exist and listen for changes
    * from the notebook tracker.
    */
-  protected onAfterAttach(): void {
+  protected onAfterAttach(msg: Message): void {
     if (!this.label) {
       const label = document.createElement('label');
       label.textContent = this._trans.__('Cell Tags');
@@ -200,33 +206,23 @@ export class TagTool extends NotebookTools.Tool {
       this.parent!.node.insertBefore(label, this.node);
       this.label = true;
     }
-    if (this.tracker.currentWidget) {
-      void this.tracker.currentWidget.context.ready.then(() => {
-        this.refreshTags();
-        this.loadActiveTags();
-      });
-      this.tracker.currentWidget.model!.cells.changed.connect(() => {
-        this.refreshTags();
-        this.loadActiveTags();
-      });
-      this.tracker.currentWidget.content.activeCellChanged.connect(() => {
-        this.refreshTags();
-        this.loadActiveTags();
-      });
-    }
-    this.tracker.currentChanged.connect(() => {
-      this.refreshTags();
-      this.loadActiveTags();
-    });
+    this.onCurrentChanged();
+    super.onAfterAttach(msg);
+  }
+
+  /**
+   * Clear signal connections before detaching
+   */
+  protected onBeforeDetach(msg: Message): void {
+    super.onBeforeDetach(msg);
+    Signal.disconnectReceiver(this);
   }
 
   /**
    * Handle a change to active cell metadata.
    */
   protected onActiveCellMetadataChanged(): void {
-    const tags = this.tracker.activeCell!.model.metadata.get(
-      'tags'
-    ) as string[];
+    const tags = this.tracker.activeCell!.model.getMetadata('tags') as string[];
     let taglist: string[] = [];
     if (tags) {
       if (typeof tags === 'string') {
@@ -236,6 +232,36 @@ export class TagTool extends NotebookTools.Tool {
       }
     }
     this.validateTags(this.tracker.activeCell!, taglist);
+  }
+
+  /**
+   * Callback on current widget changes
+   */
+  protected onCurrentChanged(): void {
+    Signal.disconnectReceiver(this);
+    this.tracker.currentChanged.connect(this.onCurrentChanged, this);
+    if (this.tracker.currentWidget) {
+      void this.tracker.currentWidget.context.ready.then(() => {
+        this.refresh();
+      });
+      this.tracker.currentWidget.model!.cells.changed.connect(
+        this.refresh,
+        this
+      );
+      this.tracker.currentWidget.content.activeCellChanged.connect(
+        this.refresh,
+        this
+      );
+    }
+    this.refresh();
+  }
+
+  /**
+   * Refresh tags and active status
+   */
+  protected refresh(): void {
+    this.refreshTags();
+    this.loadActiveTags();
   }
 
   public tracker: INotebookTracker;

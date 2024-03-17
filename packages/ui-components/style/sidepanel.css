@@ -1,7 +1,13 @@
+/*
+ * Copyright (c) Jupyter Development Team.
+ * Distributed under the terms of the Modified BSD License.
+ */
+
 .jp-SidePanel {
   display: flex;
   flex-direction: column;
   min-width: var(--jp-sidebar-min-width);
+  overflow-y: auto;
   color: var(--jp-ui-font-color1);
   background: var(--jp-layout-color1);
   font-size: var(--jp-ui-font-size1);
@@ -10,7 +16,6 @@
 .jp-SidePanel-header {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
   border-bottom: var(--jp-border-width) solid var(--jp-border-color2);
   font-size: var(--jp-ui-font-size0);
   font-weight: 600;
@@ -33,6 +38,10 @@
   height: var(--jp-private-toolbar-height);
 }
 
+.jp-SidePanel-toolbar.jp-Toolbar-micro {
+  display: none;
+}
+
 .lm-AccordionPanel .jp-AccordionPanel-title {
   box-sizing: border-box;
   line-height: 25px;
@@ -46,6 +55,7 @@
 }
 
 .jp-AccordionPanel-title {
+  cursor: pointer;
   user-select: none;
   -moz-user-select: none;
   -webkit-user-select: none;
@@ -61,6 +71,9 @@
 
 .jp-AccordionPanel-title .lm-AccordionPanel-titleLabel {
   user-select: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .jp-AccordionPanel-title .lm-AccordionPanel-titleCollapser {
@@ -82,4 +95,10 @@
 
 .lm-AccordionPanel .lm-SplitPanel-handle:hover {
   background: var(--jp-layout-color3);
+}
+
+.jp-text-truncated {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

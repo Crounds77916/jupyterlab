@@ -13,36 +13,53 @@ import {
 import {
   createToolbarFactory,
   ICommandPalette,
+  ISanitizer,
   ISessionContextDialogs,
   IToolbarWidgetRegistry,
+  MainAreaWidget,
+  Sanitizer,
   WidgetTracker
 } from '@jupyterlab/apputils';
 import {
   CodeEditor,
+  CodeViewerWidget,
   IEditorServices,
   IPositionModel
 } from '@jupyterlab/codeeditor';
+import { ICompletionProviderManager } from '@jupyterlab/completer';
 import { IConsoleTracker } from '@jupyterlab/console';
 import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
+import { ISearchProviderRegistry } from '@jupyterlab/documentsearch';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import {
   FileEditor,
+  FileEditorAdapter,
   FileEditorFactory,
+  FileEditorSearchProvider,
   IEditorTracker,
+  LaTeXTableOfContentsFactory,
+  MarkdownTableOfContentsFactory,
+  PythonTableOfContentsFactory,
   TabSpaceStatus
 } from '@jupyterlab/fileeditor';
 import { ILauncher } from '@jupyterlab/launcher';
+import {
+  ILSPCodeExtractorsManager,
+  ILSPDocumentConnectionManager,
+  ILSPFeatureManager
+} from '@jupyterlab/lsp';
 import { IMainMenu } from '@jupyterlab/mainmenu';
 import { IObservableList } from '@jupyterlab/observables';
+import { Session } from '@jupyterlab/services';
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import { IStatusBar } from '@jupyterlab/statusbar';
+import { ITableOfContentsRegistry } from '@jupyterlab/toc';
 import { ITranslator } from '@jupyterlab/translation';
-import { ICompletionProviderManager } from '@jupyterlab/completer';
-import { find, toArray } from '@lumino/algorithm';
+import { find } from '@lumino/algorithm';
 import { JSONObject } from '@lumino/coreutils';
 import { Menu, Widget } from '@lumino/widgets';
-import { Commands, FACTORY, IFileTypeData } from './commands';
-import { Session } from '@jupyterlab/services';
+
+import { CommandIDs, Commands, FACTORY, IFileTypeData } from './commands';
 
 export { Commands } from './commands';
 
@@ -65,6 +82,7 @@ const plugin: JupyterFrontEndPlugin<IEditorTracker> = {
     IMainMenu,
     ILayoutRestorer,
     ISessionContextDialogs,
+    ITableOfContentsRegistry,
     IToolbarWidgetRegistry
   ],
   provides: IEditorTracker,
@@ -157,9 +175,11 @@ const lineColStatus: JupyterFrontEndPlugin<void> = {
     positionModel: IPositionModel
   ) => {
     positionModel.addEditorProvider((widget: Widget | null) =>
-      widget && tracker.has(widget)
-        ? (widget as IDocumentWidget<FileEditor>).content.editor
-        : null
+      Promise.resolve(
+        widget && tracker.has(widget)
+          ? (widget as IDocumentWidget<FileEditor>).content.editor
+          : null
+      )
     );
   },
   requires: [IEditorTracker, IPositionModel],
@@ -169,8 +189,33 @@ const lineColStatus: JupyterFrontEndPlugin<void> = {
 const completerPlugin: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/fileeditor-extension:completer',
   requires: [IEditorTracker],
-  optional: [ICompletionProviderManager],
+  optional: [ICompletionProviderManager, ITranslator, ISanitizer],
   activate: activateFileEditorCompleterService,
+  autoStart: true
+};
+
+/**
+ * A plugin to search file editors
+ */
+const searchProvider: JupyterFrontEndPlugin<void> = {
+  id: '@jupyterlab/fileeditor-extension:search',
+  requires: [ISearchProviderRegistry],
+  autoStart: true,
+  activate: (app: JupyterFrontEnd, registry: ISearchProviderRegistry) => {
+    registry.add('jp-fileeditorSearchProvider', FileEditorSearchProvider);
+  }
+};
+
+const languageServerPlugin: JupyterFrontEndPlugin<void> = {
+  id: '@jupyterlab/fileeditor-extension:language-server',
+  requires: [
+    IEditorTracker,
+    ILSPDocumentConnectionManager,
+    ILSPFeatureManager,
+    ILSPCodeExtractorsManager
+  ],
+
+  activate: activateFileEditorLanguageServer,
   autoStart: true
 };
 
@@ -180,8 +225,10 @@ const completerPlugin: JupyterFrontEndPlugin<void> = {
 const plugins: JupyterFrontEndPlugin<any>[] = [
   plugin,
   lineColStatus,
-  tabSpaceStatus,
-  completerPlugin
+  completerPlugin,
+  languageServerPlugin,
+  searchProvider,
+  tabSpaceStatus
 ];
 export default plugins;
 
@@ -200,6 +247,7 @@ function activate(
   menu: IMainMenu | null,
   restorer: ILayoutRestorer | null,
   sessionDialogs: ISessionContextDialogs | null,
+  tocRegistry: ITableOfContentsRegistry | null,
   toolbarRegistry: IToolbarWidgetRegistry | null
 ): IEditorTracker {
   const id = plugin.id;
@@ -347,6 +395,33 @@ function activate(
     sessionDialogs
   );
 
+  const codeViewerTracker = new WidgetTracker<MainAreaWidget<CodeViewerWidget>>(
+    {
+      namespace: 'codeviewer'
+    }
+  );
+
+  // Handle state restoration for code viewers
+  if (restorer) {
+    void restorer.restore(codeViewerTracker, {
+      command: CommandIDs.openCodeViewer,
+      args: widget => ({
+        content: widget.content.content,
+        label: widget.content.title.label,
+        mimeType: widget.content.mimeType,
+        widgetId: widget.content.id
+      }),
+      name: widget => widget.content.id
+    });
+  }
+
+  Commands.addOpenCodeViewerCommand(
+    app,
+    editorServices,
+    codeViewerTracker,
+    trans
+  );
+
   // Add a launcher item if the launcher is available.
   if (launcher) {
     Commands.addLauncherItems(launcher, trans);
@@ -386,6 +461,12 @@ function activate(
       console.error(reason.message);
     });
 
+  if (tocRegistry) {
+    tocRegistry.add(new LaTeXTableOfContentsFactory(tracker));
+    tocRegistry.add(new MarkdownTableOfContentsFactory(tracker));
+    tocRegistry.add(new PythonTableOfContentsFactory(tracker));
+  }
+
   return tracker;
 }
 
@@ -395,23 +476,34 @@ function activate(
 function activateFileEditorCompleterService(
   app: JupyterFrontEnd,
   editorTracker: IEditorTracker,
-  manager?: ICompletionProviderManager
+  manager: ICompletionProviderManager | null,
+  translator: ITranslator | null,
+  appSanitizer: ISanitizer | null
 ): void {
   if (!manager) {
     return;
   }
 
-  Commands.addCompleterCommands(app.commands, editorTracker, manager);
-
+  Commands.addCompleterCommands(
+    app.commands,
+    editorTracker,
+    manager,
+    translator
+  );
+  const sessionManager = app.serviceManager.sessions;
+  const sanitizer = appSanitizer ?? new Sanitizer();
   const _activeSessions = new Map<string, Session.ISessionConnection>();
-  editorTracker.widgetAdded.connect(async (_, widget) => {
+  const updateCompleter = async (
+    _: IEditorTracker,
+    widget: IDocumentWidget<FileEditor>
+  ) => {
     const completerContext = {
       editor: widget.content.editor,
       widget
     };
-    const sessionManager = app.serviceManager.sessions;
+
     await manager.updateCompleter(completerContext);
-    const onRunningChanged = async (
+    const onRunningChanged = (
       _: Session.IManager,
       models: Session.IModel[]
     ) => {
@@ -434,9 +526,10 @@ function activateFileEditorCompleterService(
         const newCompleterContext = {
           editor: widget.content.editor,
           widget,
-          session
+          session,
+          sanitizer
         };
-        manager.updateCompleter(newCompleterContext);
+        manager.updateCompleter(newCompleterContext).catch(console.error);
         _activeSessions.set(widget.id, session);
       } else {
         // If we didn't find a match, make sure
@@ -449,7 +542,7 @@ function activateFileEditorCompleterService(
       }
     };
 
-    await onRunningChanged(sessionManager, toArray(sessionManager.running()));
+    onRunningChanged(sessionManager, Array.from(sessionManager.running()));
     sessionManager.runningChanged.connect(onRunningChanged);
 
     widget.disposed.connect(() => {
@@ -460,5 +553,29 @@ function activateFileEditorCompleterService(
         session.dispose();
       }
     });
+  };
+  editorTracker.widgetAdded.connect(updateCompleter);
+  manager.activeProvidersChanged.connect(() => {
+    editorTracker.forEach(editorWidget => {
+      updateCompleter(editorTracker, editorWidget).catch(console.error);
+    });
+  });
+}
+
+function activateFileEditorLanguageServer(
+  app: JupyterFrontEnd,
+  editors: IEditorTracker,
+  connectionManager: ILSPDocumentConnectionManager,
+  featureManager: ILSPFeatureManager,
+  extractorManager: ILSPCodeExtractorsManager
+): void {
+  editors.widgetAdded.connect(async (_, editor) => {
+    const adapter = new FileEditorAdapter(editor, {
+      connectionManager,
+      featureManager,
+      foreignCodeExtractorsManager: extractorManager,
+      docRegistry: app.docRegistry
+    });
+    connectionManager.registerAdapter(editor.context.path, adapter);
   });
 }

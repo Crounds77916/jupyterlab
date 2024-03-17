@@ -3,9 +3,9 @@
 
 import { ISessionContext } from '@jupyterlab/apputils';
 import {
+  AttachmentsCellModel,
   Cell,
   CellDragUtils,
-  CellModel,
   CodeCell,
   CodeCellModel,
   ICodeCellModel,
@@ -19,7 +19,7 @@ import * as nbformat from '@jupyterlab/nbformat';
 import { IObservableList, ObservableList } from '@jupyterlab/observables';
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import { KernelMessage } from '@jupyterlab/services';
-import { each } from '@lumino/algorithm';
+import { createStandaloneCell, ISharedRawCell } from '@jupyter/ydoc';
 import { JSONObject, MimeData } from '@lumino/coreutils';
 import { Drag } from '@lumino/dragdrop';
 import { Message } from '@lumino/messaging';
@@ -164,6 +164,11 @@ export class CodeConsole extends Widget {
   readonly sessionContext: ISessionContext;
 
   /**
+   * The configuration options for the text editor widget.
+   */
+  editorConfig?: Partial<CodeEditor.IConfig>;
+
+  /**
    * The list of content cells in the console.
    *
    * #### Notes
@@ -218,8 +223,12 @@ export class CodeConsole extends Widget {
       cell.disposed.connect(this._onCellDisposed, this);
     }
     // Create the banner.
-    const model = this.modelFactory.createRawCell({});
-    model.value.text = '...';
+    const model = this.modelFactory.createRawCell({
+      sharedModel: createStandaloneCell({
+        cell_type: 'raw',
+        source: '...'
+      }) as ISharedRawCell
+    });
     const banner = (this._banner = new RawCell({
       model,
       contentFactory: this.contentFactory,
@@ -261,11 +270,9 @@ export class CodeConsole extends Widget {
     if (this.isDisposed) {
       return;
     }
-    this._cells.clear();
     this._msgIdCells = null!;
     this._msgIds = null!;
     this._history.dispose();
-
     super.dispose();
   }
 
@@ -305,11 +312,11 @@ export class CodeConsole extends Widget {
     if (shouldExecute) {
       // Create a new prompt cell before kernel execution to allow typeahead.
       this.newPromptCell();
-      this.promptCell!.editor.focus();
+      this.promptCell!.editor!.focus();
       await this._execute(promptCell);
     } else {
       // add a newline if we shouldn't execute
-      promptCell.editor.newIndentedLine();
+      promptCell.editor!.newIndentedLine();
     }
   }
 
@@ -331,9 +338,9 @@ export class CodeConsole extends Widget {
    */
   inject(code: string, metadata: JSONObject = {}): Promise<void> {
     const cell = this.createCodeCell();
-    cell.model.value.text = code;
+    cell.model.sharedModel.setSource(code);
     for (const key of Object.keys(metadata)) {
-      cell.model.metadata.set(key, metadata[key]);
+      cell.model.setMetadata(key, metadata[key]);
     }
     this.addCell(cell);
     return this._execute(cell);
@@ -347,7 +354,7 @@ export class CodeConsole extends Widget {
     if (!promptCell) {
       return;
     }
-    promptCell.editor.newIndentedLine();
+    promptCell.editor!.newIndentedLine();
   }
 
   /**
@@ -360,7 +367,7 @@ export class CodeConsole extends Widget {
     if (!promptCell) {
       return;
     }
-    promptCell.editor.replaceSelection?.(text);
+    promptCell.editor!.replaceSelection?.(text);
   }
 
   /**
@@ -372,12 +379,12 @@ export class CodeConsole extends Widget {
    */
   serialize(): nbformat.ICodeCell[] {
     const cells: nbformat.ICodeCell[] = [];
-    each(this._cells, cell => {
+    for (const cell of this._cells) {
       const model = cell.model;
       if (isCodeCellModel(model)) {
         cells.push(model.toJSON());
       }
-    });
+    }
 
     if (this.promptCell) {
       cells.push(this.promptCell.model.toJSON());
@@ -423,10 +430,8 @@ export class CodeConsole extends Widget {
 
     const cell = this._cells.get(cellIndex);
 
-    const targetArea: CellDragUtils.ICellTargetArea = CellDragUtils.detectTargetArea(
-      cell,
-      event.target as HTMLElement
-    );
+    const targetArea: CellDragUtils.ICellTargetArea =
+      CellDragUtils.detectTargetArea(cell, event.target as HTMLElement);
 
     if (targetArea === 'prompt') {
       this._dragData = {
@@ -486,7 +491,7 @@ export class CodeConsole extends Widget {
     });
 
     this._drag.mimeData.setData(JUPYTER_CELL_MIME, selected);
-    const textContent = cellModel.value.text;
+    const textContent = cellModel.sharedModel.getSource();
     this._drag.mimeData.setData('text/plain', textContent);
 
     this._focusedCell = null;
@@ -543,7 +548,7 @@ export class CodeConsole extends Widget {
     if (!this.promptCell) {
       this.newPromptCell();
     } else {
-      this.promptCell.editor.focus();
+      this.promptCell.editor!.focus();
       this.update();
     }
   }
@@ -597,7 +602,7 @@ export class CodeConsole extends Widget {
 
     // Suppress the default "Enter" key handling.
     const editor = promptCell.editor;
-    editor.addKeydownHandler(this._onEditorKeydown);
+    editor!.addKeydownHandler(this._onEditorKeydown);
 
     this._history.editor = editor;
     this._promptCellCreated.emit(promptCell);
@@ -637,7 +642,7 @@ export class CodeConsole extends Widget {
       this.promptCell &&
       this.promptCell.node.contains(event.target as HTMLElement)
     ) {
-      this.promptCell.editor.focus();
+      this.promptCell.editor!.focus();
     }
   }
 
@@ -645,7 +650,7 @@ export class CodeConsole extends Widget {
    * Execute the code in the current prompt cell.
    */
   private _execute(cell: CodeCell): Promise<void> {
-    const source = cell.model.value.text;
+    const source = cell.model.sharedModel.getSource();
     this._history.push(source);
     // If the source of the console is just "clear", clear the console as we
     // do in IPython or QtConsole.
@@ -668,15 +673,15 @@ export class CodeConsole extends Widget {
           if (setNextInput) {
             const text = (setNextInput as any).text;
             // Ignore the `replace` value and always set the next cell.
-            cell.model.value.text = text;
+            cell.model.sharedModel.setSource(text);
           }
         }
       } else if (value && value.content.status === 'error') {
-        each(this._cells, (cell: CodeCell) => {
-          if (cell.model.executionCount === null) {
+        for (const cell of this._cells) {
+          if ((cell.model as ICodeCellModel).executionCount === null) {
             cell.setPrompt('');
           }
-        });
+        }
       }
       cell.model.contentChanged.disconnect(this.update, this);
       this.update();
@@ -700,10 +705,12 @@ export class CodeConsole extends Widget {
    */
   private _handleInfo(info: KernelMessage.IInfoReplyMsg['content']): void {
     if (info.status !== 'ok') {
-      this._banner!.model.value.text = 'Error in getting kernel banner';
+      this._banner!.model.sharedModel.setSource(
+        'Error in getting kernel banner'
+      );
       return;
     }
-    this._banner!.model.value.text = info.banner;
+    this._banner!.model.sharedModel.setSource(info.banner);
     const lang = info.language_info as nbformat.ILanguageInfoMetadata;
     this._mimetype = this._mimeTypeService.getMimeTypeByLanguage(lang);
     if (this.promptCell) {
@@ -719,7 +726,14 @@ export class CodeConsole extends Widget {
     const modelFactory = this.modelFactory;
     const model = modelFactory.createCodeCell({});
     const rendermime = this.rendermime;
-    return { model, rendermime, contentFactory, placeholder: false };
+    const editorConfig = this.editorConfig;
+    return {
+      model,
+      rendermime,
+      contentFactory,
+      editorConfig,
+      placeholder: false
+    };
   }
 
   /**
@@ -745,7 +759,7 @@ export class CodeConsole extends Widget {
       return Promise.resolve(false);
     }
     const model = promptCell.model;
-    const code = model.value.text;
+    const code = model.sharedModel.getSource();
     return new Promise<boolean>((resolve, reject) => {
       const timer = setTimeout(() => {
         resolve(true);
@@ -882,7 +896,8 @@ export namespace CodeConsole {
    */
   export class ContentFactory
     extends Cell.ContentFactory
-    implements IContentFactory {
+    implements IContentFactory
+  {
     /**
      * Create a new code cell widget.
      *
@@ -954,7 +969,9 @@ export namespace CodeConsole {
      * @returns A new raw cell. If a source cell is provided, the
      *   new cell will be initialized with the data from the source.
      */
-    createRawCell(options: CellModel.IOptions): IRawCellModel;
+    createRawCell(
+      options: AttachmentsCellModel.IOptions<ISharedRawCell>
+    ): IRawCellModel;
   }
 
   /**
@@ -984,7 +1001,7 @@ export namespace CodeConsole {
      *   If the contentFactory is not provided, the instance
      *   `codeCellContentFactory` will be used.
      */
-    createCodeCell(options: CodeCellModel.IOptions): ICodeCellModel {
+    createCodeCell(options: CodeCellModel.IOptions = {}): ICodeCellModel {
       if (!options.contentFactory) {
         options.contentFactory = this.codeCellContentFactory;
       }
@@ -999,7 +1016,9 @@ export namespace CodeConsole {
      * @returns A new raw cell. If a source cell is provided, the
      *   new cell will be initialized with the data from the source.
      */
-    createRawCell(options: CellModel.IOptions): IRawCellModel {
+    createRawCell(
+      options: AttachmentsCellModel.IOptions<ISharedRawCell>
+    ): IRawCellModel {
       return new RawCellModel(options);
     }
   }

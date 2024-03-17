@@ -1,7 +1,7 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { defaultSanitizer } from '@jupyterlab/apputils';
+import { Sanitizer } from '@jupyterlab/apputils';
 import * as marked from '@jupyterlab/markedparser-extension';
 import { JSONObject, JSONValue } from '@lumino/coreutils';
 import { Widget } from '@lumino/widgets';
@@ -32,7 +32,7 @@ function encodeChars(txt: string): string {
   return txt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const sanitizer = defaultSanitizer;
+const sanitizer = new Sanitizer();
 const defaultOptions: any = {
   sanitizer,
   linkHandler: null,
@@ -86,6 +86,14 @@ describe('rendermime/factories', () => {
         [
           '\x1b[48;2;185;0;129mwww.example.\x1b[0m\x1b[48;2;113;0;119mcom\x1b[0m',
           '<pre><a href="https://www.example.com" rel="noopener" target="_blank"><span style="background-color:rgb(185,0,129)">www.example.</span><span style="background-color:rgb(113,0,119)">com</span></a></pre>'
+        ],
+        [
+          'Prefix \x1b[48;2;185;0;129m spacer www.example.\x1b[0m\x1b[48;2;113;0;119mcom\x1b[0m',
+          '<pre>Prefix <span style="background-color:rgb(185,0,129)"> spacer </span><a href="https://www.example.com" rel="noopener" target="_blank"><span style="background-color:rgb(185,0,129)">www.example.</span><span style="background-color:rgb(113,0,119)">com</span></a></pre>'
+        ],
+        [
+          'Prefix www.example.\x1b[0m\x1b[48;2;113;0;119mcom postfix\x1b[0m',
+          '<pre>Prefix <a href="https://www.example.com" rel="noopener" target="_blank">www.example.<span style="background-color:rgb(113,0,119)">com</span></a><span style="background-color:rgb(113,0,119)"> postfix</span></pre>'
         ]
       ])(
         'should output the correct HTML with ansi colors',
@@ -165,18 +173,18 @@ describe('rendermime/factories', () => {
           })
         );
       });
-    });
 
-    it('should autolink multiple URLs', async () => {
-      const source = 'www.example.com\nwww.python.org';
-      const expected =
-        '<pre><a href="https://www.example.com" rel="noopener" target="_blank">www.example.com</a>\n<a href="https://www.python.org" rel="noopener" target="_blank">www.python.org</a></pre>';
-      const f = textRendererFactory;
-      const mimeType = 'text/plain';
-      const model = createModel(mimeType, source);
-      const w = f.createRenderer({ mimeType, ...defaultOptions });
-      await w.renderModel(model);
-      expect(w.node.innerHTML).toBe(expected);
+      it('should autolink multiple URLs', async () => {
+        const source = 'www.example.com\nwww.python.org';
+        const expected =
+          '<pre><a href="https://www.example.com" rel="noopener" target="_blank">www.example.com</a>\n<a href="https://www.python.org" rel="noopener" target="_blank">www.python.org</a></pre>';
+        const f = textRendererFactory;
+        const mimeType = 'text/plain';
+        const model = createModel(mimeType, source);
+        const w = f.createRenderer({ mimeType, ...defaultOptions });
+        await w.renderModel(model);
+        expect(w.node.innerHTML).toBe(expected);
+      });
     });
   });
 
@@ -429,7 +437,8 @@ describe('rendermime/factories', () => {
           'image/bmp',
           'image/png',
           'image/jpeg',
-          'image/gif'
+          'image/gif',
+          'image/webp'
         ]);
       });
     });

@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) Jupyter Development Team.
+# Distributed under the terms of the Modified BSD License.
+
 """
 This file is meant to be used to test all of the example here and and
 in ../packages/services/examples.  We import each of the applications
@@ -20,9 +23,7 @@ here = osp.abspath(osp.dirname(__file__))
 def header(path):
     test_name = osp.basename(path)
     print(
-        "\n".join(
-            ("\n", "*" * 40, "Starting %s test in %s" % (test_name, path), "*" * 40)
-        ),
+        "\n".join(("\n", "*" * 40, "Starting %s test in %s" % (test_name, path), "*" * 40)),
         flush=True,
     )
 

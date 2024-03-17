@@ -1,8 +1,6 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { IIterator } from '@lumino/algorithm';
-
 import { JSONPrimitive } from '@lumino/coreutils';
 
 import { IObservableDisposable } from '@lumino/disposable';
@@ -19,9 +17,13 @@ export { IModel, isAvailable };
 export namespace ITerminal {
   export interface IOptions {
     /**
-     * Terminal name.
+     * The terminal name.
      */
-    name: string;
+    name?: string;
+    /**
+     *  The terminal current directory.
+     */
+    cwd?: string;
   }
 }
 
@@ -149,7 +151,7 @@ export interface IManager extends IBaseManager {
    *
    * @returns A new iterator over the running terminals.
    */
-  running(): IIterator<IModel>;
+  running(): IterableIterator<IModel>;
 
   /**
    * Create a new terminal session.

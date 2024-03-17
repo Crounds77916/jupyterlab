@@ -12,9 +12,6 @@
       "path": "../coreutils"
     },
     {
-      "path": "../observables"
-    },
-    {
       "path": "../rendermime"
     },
     {

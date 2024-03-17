@@ -14,7 +14,6 @@ import {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import {
-  defaultSanitizer,
   Dialog,
   ICommandPalette,
   ISanitizer,
@@ -23,6 +22,7 @@ import {
   IWindowResolver,
   MainAreaWidget,
   Printing,
+  Sanitizer,
   sessionContextDialogs,
   WindowResolver
 } from '@jupyterlab/apputils';
@@ -34,6 +34,8 @@ import { jupyterFaviconIcon } from '@jupyterlab/ui-components';
 import { PromiseDelegate } from '@lumino/coreutils';
 import { DisposableDelegate } from '@lumino/disposable';
 import { Debouncer, Throttler } from '@lumino/polling';
+import { announcements } from './announcements';
+import { notificationPlugin } from './notificationplugin';
 import { Palette } from './palette';
 import { settingsPlugin } from './settingsplugin';
 import { kernelStatus, runningSessionsStatus } from './statusbarplugin';
@@ -309,6 +311,7 @@ export const toggleHeader: JupyterFrontEndPlugin<void> = {
       label: trans.__('Show Header Above Content'),
       isEnabled: () =>
         app.shell.currentWidget instanceof MainAreaWidget &&
+        !app.shell.currentWidget.contentHeader.isDisposed &&
         app.shell.currentWidget.contentHeader.widgets.length > 0,
       isToggled: () => {
         const widget = app.shell.currentWidget;
@@ -342,7 +345,7 @@ async function updateTabTitle(workspace: string, db: IStateDB, name: string) {
     }`;
   } else {
     // File name from current path
-    let currentFile: string = PathExt.basename(current.split(':')[1]);
+    let currentFile: string = PathExt.basename(window.location.href);
     // Truncate to first 12 characters of current document name + ... if length > 15
     currentFile =
       currentFile.length > 15
@@ -410,6 +413,7 @@ const state: JupyterFrontEndPlugin<IStateDB> = {
     db.changed.connect(() => updateTabTitle(workspace, db, name));
 
     commands.addCommand(CommandIDs.loadState, {
+      label: trans.__('Load state for the current workspace.'),
       execute: async (args: IRouter.ILocation) => {
         // Since the command can be executed an arbitrary number of times, make
         // sure it is safe to call multiple times.
@@ -418,13 +422,12 @@ const state: JupyterFrontEndPlugin<IStateDB> = {
         }
 
         const { hash, path, search } = args;
-        const { urls } = paths;
         const query = URLExt.queryStringToObject(search || '');
         const clone =
           typeof query['clone'] === 'string'
             ? query['clone'] === ''
-              ? URLExt.join(urls.base, urls.app)
-              : URLExt.join(urls.base, urls.app, 'workspaces', query['clone'])
+              ? PageConfig.defaultWorkspace
+              : query['clone']
             : null;
         const source = clone || workspace || null;
 
@@ -485,6 +488,7 @@ const state: JupyterFrontEndPlugin<IStateDB> = {
     });
 
     commands.addCommand(CommandIDs.resetOnLoad, {
+      label: trans.__('Reset state when loading for the workspace.'),
       execute: (args: IRouter.ILocation) => {
         const { hash, path, search } = args;
         const query = URLExt.queryStringToObject(search || '');
@@ -609,11 +613,37 @@ const utilityCommands: JupyterFrontEndPlugin<void> = {
  * The default HTML sanitizer.
  */
 const sanitizer: JupyterFrontEndPlugin<ISanitizer> = {
-  id: '@jupyter/apputils-extension:sanitizer',
+  id: '@jupyterlab/apputils-extension:sanitizer',
   autoStart: true,
   provides: ISanitizer,
-  activate: () => {
-    return defaultSanitizer;
+  requires: [ISettingRegistry],
+  activate: (app: JupyterFrontEnd, settings: ISettingRegistry): ISanitizer => {
+    const sanitizer = new Sanitizer();
+    const loadSetting = (setting: ISettingRegistry.ISettings): void => {
+      const allowedSchemes = setting.get('allowedSchemes')
+        .composite as Array<string>;
+
+      if (allowedSchemes) {
+        sanitizer.setAllowedSchemes(allowedSchemes);
+      }
+    };
+
+    // Wait for the application to be restored and
+    // for the settings for this plugin to be loaded
+    settings
+      .load('@jupyterlab/apputils-extension:sanitizer')
+      .then(setting => {
+        // Read the settings
+        loadSetting(setting);
+
+        // Listen for your plugin setting changes using Signal
+        setting.changed.connect(loadSetting);
+      })
+      .catch(reason => {
+        console.error(`Failed to load sanitizer settings:`, reason);
+      });
+
+    return sanitizer;
   }
 };
 
@@ -621,7 +651,9 @@ const sanitizer: JupyterFrontEndPlugin<ISanitizer> = {
  * Export the plugins as default.
  */
 const plugins: JupyterFrontEndPlugin<any>[] = [
+  announcements,
   kernelStatus,
+  notificationPlugin,
   palette,
   paletteRestorer,
   print,

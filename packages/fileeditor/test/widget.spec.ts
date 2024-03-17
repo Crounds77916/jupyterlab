@@ -11,11 +11,7 @@ import {
   DocumentWidget,
   TextModelFactory
 } from '@jupyterlab/docregistry';
-import {
-  FileEditor,
-  FileEditorCodeWrapper,
-  FileEditorFactory
-} from '@jupyterlab/fileeditor';
+import { FileEditor, FileEditorFactory } from '@jupyterlab/fileeditor';
 import { ServiceManager } from '@jupyterlab/services';
 import { framePromise } from '@jupyterlab/testutils';
 import * as Mock from '@jupyterlab/testutils/lib/mock';
@@ -62,43 +58,6 @@ describe('fileeditorcodewrapper', () => {
     return manager.ready;
   });
 
-  describe('FileEditorCodeWrapper', () => {
-    let widget: FileEditorCodeWrapper;
-
-    beforeEach(() => {
-      const path = UUID.uuid4() + '.py';
-      context = new Context({ manager, factory: modelFactory, path });
-      widget = new FileEditorCodeWrapper({
-        factory: options => factoryService.newDocumentEditor(options),
-        mimeTypeService,
-        context
-      });
-    });
-
-    afterEach(() => {
-      widget.dispose();
-    });
-
-    describe('#constructor()', () => {
-      it('should create an editor wrapper widget', () => {
-        expect(widget).toBeInstanceOf(FileEditorCodeWrapper);
-      });
-
-      it('should update the editor text when the model changes', async () => {
-        await context.initialize(true);
-        await context.ready;
-        widget.context.model.fromString('foo');
-        expect(widget.editor.model.value.text).toBe('foo');
-      });
-    });
-
-    describe('#context', () => {
-      it('should be the context used by the widget', () => {
-        expect(widget.context).toBe(context);
-      });
-    });
-  });
-
   describe('FileEditor', () => {
     let widget: LogFileEditor;
 
@@ -125,7 +84,7 @@ describe('fileeditorcodewrapper', () => {
         await context.initialize(true);
         await context.ready;
         widget.context.model.fromString('foo');
-        expect(widget.editor.model.value.text).toBe('foo');
+        expect(widget.editor.model.sharedModel.getSource()).toBe('foo');
       });
 
       it('should set the mime type for the path', () => {
@@ -198,6 +157,13 @@ describe('fileeditorcodewrapper', () => {
         expect(widget.methods).toContain('onActivateRequest');
         await framePromise();
         expect(widget.editor.hasFocus()).toBe(true);
+      });
+    });
+
+    describe('#ready', () => {
+      it('should resolve after initialization', async () => {
+        await context.initialize(true);
+        return expect(widget.ready).resolves.toBe(undefined);
       });
     });
   });

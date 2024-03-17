@@ -12,7 +12,6 @@ import {
   waitForDialog
 } from '@jupyterlab/testutils';
 import * as Mock from '@jupyterlab/testutils/lib/mock';
-import { toArray } from '@lumino/algorithm';
 import expect from 'expect';
 import { simulate } from 'simulate-event';
 import { FileBrowserModel, FileDialog, FilterFileBrowserModel } from '../src';
@@ -23,11 +22,7 @@ describe('@jupyterlab/filebrowser', () => {
   let registry: DocumentRegistry;
 
   beforeAll(async () => {
-    const opener: DocumentManager.IWidgetOpener = {
-      open: widget => {
-        /* no op */
-      }
-    };
+    const opener = new Mock.DocumentWidgetOpenerMock();
 
     registry = new DocumentRegistry({
       textModelFactory: new TextModelFactory()
@@ -55,7 +50,7 @@ describe('@jupyterlab/filebrowser', () => {
       it('should accept filter option', () => {
         const model = new FilterFileBrowserModel({
           manager,
-          filter: (model: Contents.IModel) => false
+          filter: (model: Contents.IModel) => null
         });
         expect(model).toBeInstanceOf(FilterFileBrowserModel);
       });
@@ -70,42 +65,56 @@ describe('@jupyterlab/filebrowser', () => {
         const model = new FileBrowserModel({ manager });
         await model.cd();
 
-        const filteredItems = toArray(filteredModel.items());
-        const items = toArray(model.items());
+        const filteredItems = Array.from(filteredModel.items());
+        const items = Array.from(model.items());
         expect(filteredItems.length).toBe(items.length);
       });
 
-      it('should list all directories whatever the filter', async () => {
+      it('should list all directories if filterDirectories is false', async () => {
         const filteredModel = new FilterFileBrowserModel({
           manager,
-          filter: (model: Contents.IModel) => false
+          filter: (model: Contents.IModel) => null,
+          filterDirectories: false
         });
         await filteredModel.cd();
         const model = new FileBrowserModel({ manager });
         await model.cd();
 
-        const filteredItems = toArray(filteredModel.items());
-        const items = toArray(model.items());
+        const filteredItems = Array.from(filteredModel.items());
+        const items = Array.from(model.items());
         const folders = items.filter(item => item.type === 'directory');
         expect(filteredItems.length).toBe(folders.length);
+      });
+
+      it('should filter files and directories if filterDirectories is true', async () => {
+        const filteredModel = new FilterFileBrowserModel({
+          manager,
+          filter: (model: Contents.IModel) => null,
+          filterDirectories: true
+        });
+        await filteredModel.cd();
+        const model = new FileBrowserModel({ manager });
+        await model.cd();
+
+        const filteredItems = Array.from(filteredModel.items());
+        expect(filteredItems.length).toBe(0);
       });
 
       it('should respect the filter', async () => {
         const filteredModel = new FilterFileBrowserModel({
           manager,
-          filter: (model: Contents.IModel) => model.type === 'notebook'
+          filter: (model: Contents.IModel) =>
+            model.type === 'notebook' ? {} : null
         });
         await filteredModel.cd();
         const model = new FileBrowserModel({ manager });
         await model.cd();
 
-        const filteredItems = toArray(
+        const filteredItems = Array.from(
           filteredModel.items()
         ) as Contents.IModel[];
-        const items = toArray(model.items());
-        const shownItems = items.filter(
-          item => item.type === 'directory' || item.type === 'notebook'
-        );
+        const items = Array.from(model.items());
+        const shownItems = items.filter(item => item.type === 'notebook');
         expect(filteredItems.length).toBe(shownItems.length);
         const notebooks = filteredItems.filter(
           item => item.type === 'notebook'
@@ -138,7 +147,8 @@ describe('@jupyterlab/filebrowser', () => {
         manager,
         title: 'Select a notebook',
         host: node,
-        filter: (value: Contents.IModel) => value.type === 'notebook'
+        filter: (value: Contents.IModel) =>
+          value.type === 'notebook' ? {} : null
       });
 
       await acceptDialog();
@@ -161,7 +171,8 @@ describe('@jupyterlab/filebrowser', () => {
         manager,
         title: 'Select a notebook',
         host: node,
-        filter: (value: Contents.IModel) => value.type === 'notebook'
+        filter: (value: Contents.IModel) =>
+          value.type === 'notebook' ? {} : null
       });
 
       await waitForDialog();

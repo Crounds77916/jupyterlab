@@ -1,11 +1,10 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { defaultSanitizer } from '@jupyterlab/apputils';
+import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { CodeEditor } from '@jupyterlab/codeeditor';
 import { renderText } from '@jupyterlab/rendermime';
 import { HoverBox, LabIcon } from '@jupyterlab/ui-components';
-import { IIterator, IterableOrArrayLike, toArray } from '@lumino/algorithm';
 import { JSONExt, JSONObject } from '@lumino/coreutils';
 import { IDisposable } from '@lumino/disposable';
 import { ElementExt } from '@lumino/domutils';
@@ -61,12 +60,18 @@ export class Completer extends Widget {
    */
   constructor(options: Completer.IOptions) {
     super({ node: document.createElement('div') });
-    this._renderer = options.renderer || Completer.defaultRenderer;
-
-    this.model = options.model || null;
-    this.editor = options.editor || null;
+    this.sanitizer = options.sanitizer ?? new Sanitizer();
+    this._renderer =
+      options.renderer ?? Completer.getDefaultRenderer(this.sanitizer);
+    this.model = options.model ?? null;
+    this.editor = options.editor ?? null;
     this.addClass('jp-Completer');
   }
+
+  /**
+   * The sanitizer used to sanitize untrusted html inputs.
+   */
+  readonly sanitizer: ISanitizer;
 
   /**
    * The active index.
@@ -132,8 +137,8 @@ export class Completer extends Widget {
   /**
    * Enable/disable the document panel.
    */
-  set showDocsPanel(showDoc: boolean | null) {
-    this._showDoc = showDoc ?? true;
+  set showDocsPanel(showDoc: boolean) {
+    this._showDoc = showDoc;
   }
 
   get showDocsPanel(): boolean {
@@ -328,7 +333,7 @@ export class Completer extends Widget {
   }
 
   private _createIItemNode(model: Completer.IModel): HTMLElement | null {
-    const items = toArray(model.items());
+    const items = Array.from(model.items());
 
     // If there are no items, reset and bail.
     if (!items || !items.length) {
@@ -345,7 +350,7 @@ export class Completer extends Widget {
     // We don't test the filtered `items`, as that
     // is too aggressive of completer behavior, it can
     // lead to double typing of an option.
-    const options = toArray(model.options());
+    const options = Array.from(model.options());
     if (options.length === 1) {
       this._selected.emit(options[0]);
       this.reset();
@@ -604,16 +609,31 @@ export class Completer extends Widget {
     const borderLeft = parseInt(style.borderLeftWidth!, 10) || 0;
     const paddingLeft = parseInt(style.paddingLeft!, 10) || 0;
 
+    // When the editor is attached to the main area, contain the completer hover box
+    // to the full area available (rather than to the editor itself); the available
+    // area excludes the toolbar, hence the first Widget child between MainAreaWidget
+    // and editor is preferred. The difference is negligible in File Editor, but
+    // substantial for Notebooks.
+    const host =
+      (editor.host.closest('.jp-MainAreaWidget > .lm-Widget') as HTMLElement) ||
+      editor.host;
+
     // Calculate the geometry of the completer.
     HoverBox.setGeometry({
       anchor,
-      host: editor.host,
+      host: host,
       maxHeight: MAX_HEIGHT,
       minHeight: MIN_HEIGHT,
       node: node,
       offset: { horizontal: borderLeft + paddingLeft },
       privilege: 'below',
-      style: style
+      style: style,
+      outOfViewDisplay: {
+        top: 'hidden-inside',
+        bottom: 'hidden-inside',
+        left: 'stick-inside',
+        right: 'stick-outside'
+      }
     });
   }
 
@@ -654,7 +674,8 @@ export class Completer extends Widget {
           let node: HTMLElement;
           const nodeRenderer =
             this._renderer.createDocumentationNode ??
-            Completer.defaultRenderer.createDocumentationNode;
+            Completer.getDefaultRenderer(this.sanitizer)
+              .createDocumentationNode;
           node = nodeRenderer(activeItem);
           docPanel!.textContent = '';
           docPanel!.appendChild(node);
@@ -707,6 +728,11 @@ export namespace Completer {
      * Flag to show or hide the document panel.
      */
     showDoc?: boolean;
+
+    /**
+     * Sanitizer used to sanitize html strings
+     */
+    sanitizer?: ISanitizer;
   }
 
   /**
@@ -786,7 +812,7 @@ export namespace Completer {
     /**
      * Get the of visible items in the completer menu.
      */
-    items(): IIterator<IItem>;
+    items(): IterableIterator<IItem>;
 
     /**
      * Lazy load missing data of item at `activeIndex`.
@@ -802,7 +828,7 @@ export namespace Completer {
     /**
      * Get the unfiltered options in a completer menu.
      */
-    options(): IIterator<string>;
+    options(): IterableIterator<string>;
 
     /**
      * The map from identifiers (`a.b`) to their types (function, module, class,
@@ -818,10 +844,7 @@ export namespace Completer {
     /**
      * Set the available options in the completer menu.
      */
-    setOptions(
-      options: IterableOrArrayLike<string>,
-      typeMap?: JSONObject
-    ): void;
+    setOptions(options: Iterable<string>, typeMap?: JSONObject): void;
 
     /**
      * Handle a cursor change.
@@ -922,12 +945,19 @@ export namespace Completer {
      * documentation panel.
      */
     createDocumentationNode?(activeItem: T): HTMLElement;
+
+    /**
+     * The sanitizer used to sanitize untrusted html inputs.
+     */
+    readonly sanitizer: ISanitizer;
   }
 
   /**
    * The default implementation of an `IRenderer`.
    */
   export class Renderer implements IRenderer {
+    constructor(readonly sanitizer: ISanitizer = new Sanitizer()) {}
+
     /**
      * Create an item node from an ICompletionItem for a text completer menu.
      */
@@ -977,7 +1007,7 @@ export namespace Completer {
       const sanitizer = { sanitize: (dirty: string) => dirty };
       const source = activeItem.documentation || '';
 
-      renderText({ host, sanitizer, source });
+      renderText({ host, sanitizer, source }).catch(console.error);
       return host;
     }
 
@@ -999,7 +1029,7 @@ export namespace Completer {
       const matchNode = document.createElement('code');
       matchNode.className = 'jp-Completer-match';
       // Use innerHTML because search results include <mark> tags.
-      matchNode.innerHTML = defaultSanitizer.sanitize(result, {
+      matchNode.innerHTML = this.sanitizer.sanitize(result, {
         allowedTags: ['mark']
       });
       return matchNode;
@@ -1061,9 +1091,22 @@ export namespace Completer {
   }
 
   /**
+   * Default renderer
+   */
+  let _defaultRenderer: Renderer;
+
+  /**
    * The default `IRenderer` instance.
    */
-  export const defaultRenderer = new Renderer();
+  export function getDefaultRenderer(sanitizer?: ISanitizer): Renderer {
+    if (
+      !_defaultRenderer ||
+      (sanitizer && _defaultRenderer.sanitizer !== sanitizer)
+    ) {
+      _defaultRenderer = new Renderer(sanitizer);
+    }
+    return _defaultRenderer;
+  }
 }
 
 /**

@@ -1,22 +1,37 @@
+/*
+ * Copyright (c) Jupyter Development Team.
+ * Distributed under the terms of the Modified BSD License.
+ */
+
 import { IDocumentProvider } from './index';
 
+/**
+ * Fallback document provider
+ */
 export class ProviderMock implements IDocumentProvider {
-  requestInitialContent(): Promise<boolean> {
-    return Promise.resolve(false);
+  /**
+   * Test whether the object has been disposed.
+   */
+  get isDisposed(): boolean {
+    return this._isDisposed;
   }
-  putInitializedState(): void {
-    /* nop */
+
+  /**
+   * Returns a Promise that resolves when the document provider is ready.
+   */
+  get ready(): Promise<void> {
+    return Promise.resolve();
   }
-  acquireLock(): Promise<number> {
-    return Promise.resolve(0);
+
+  /**
+   * Dispose of the resources held by the object.
+   */
+  dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this._isDisposed = true;
   }
-  releaseLock(lock: number): void {
-    /* nop */
-  }
-  destroy(): void {
-    /* nop */
-  }
-  setPath(path: string): void {
-    /* nop */
-  }
+
+  private _isDisposed = false;
 }

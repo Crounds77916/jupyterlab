@@ -22,6 +22,12 @@
       "path": "../attachments"
     },
     {
+      "path": "../cell-toolbar"
+    },
+    {
+      "path": "../cell-toolbar-extension"
+    },
+    {
       "path": "../cells"
     },
     {
@@ -38,6 +44,12 @@
     },
     {
       "path": "../codemirror-extension"
+    },
+    {
+      "path": "../collaboration"
+    },
+    {
+      "path": "../collaboration-extension"
     },
     {
       "path": "../completer"
@@ -148,6 +160,12 @@
       "path": "../logconsole-extension"
     },
     {
+      "path": "../lsp"
+    },
+    {
+      "path": "../lsp-extension"
+    },
+    {
       "path": "../mainmenu"
     },
     {
@@ -217,9 +235,6 @@
       "path": "../settingregistry"
     },
     {
-      "path": "../shared-models"
-    },
-    {
       "path": "../shortcuts-extension"
     },
     {
@@ -266,12 +281,6 @@
     },
     {
       "path": "../ui-components-extension"
-    },
-    {
-      "path": "../user"
-    },
-    {
-      "path": "../user-extension"
     },
     {
       "path": "../vdom"

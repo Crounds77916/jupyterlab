@@ -29,52 +29,40 @@ const CODE_RUNNER = 'jpCodeRunner';
 const UNDOER = 'jpUndoer';
 
 /**
- * A code editor wrapper for the file editor.
+ * A widget for editors.
  */
-export class FileEditorCodeWrapper extends CodeEditorWrapper {
+export class FileEditor extends Widget {
   /**
    * Construct a new editor widget.
    */
   constructor(options: FileEditor.IOptions) {
-    super({
-      factory: options.factory,
-      model: options.context.model
-    });
+    super();
+    this.addClass('jp-FileEditor');
 
     const context = (this._context = options.context);
-    const editor = this.editor;
+    this._mimeTypeService = options.mimeTypeService;
 
-    this.addClass('jp-FileEditorCodeWrapper');
-    this.node.dataset[CODE_RUNNER] = 'true';
-    this.node.dataset[UNDOER] = 'true';
+    const editorWidget = (this._editorWidget = new CodeEditorWrapper({
+      factory: options.factory,
+      model: context.model
+    }));
+    this._editorWidget.addClass('jp-FileEditorCodeWrapper');
+    this._editorWidget.node.dataset[CODE_RUNNER] = 'true';
+    this._editorWidget.node.dataset[UNDOER] = 'true';
 
-    editor.model.value.text = context.model.toString();
+    this.editor = editorWidget.editor;
+    this.model = editorWidget.model;
+
     void context.ready.then(() => {
       this._onContextReady();
     });
 
-    if (context.model.modelDB.isCollaborative) {
-      const modelDB = context.model.modelDB;
-      void modelDB.connected.then(() => {
-        const collaborators = modelDB.collaborators;
-        if (!collaborators) {
-          return;
-        }
+    // Listen for changes to the path.
+    context.pathChanged.connect(this._onPathChanged, this);
+    this._onPathChanged();
 
-        // Setup the selection style for collaborators
-        const localCollaborator = collaborators.localCollaborator;
-        this.editor.uuid = localCollaborator.sessionId;
-
-        this.editor.selectionStyle = {
-          ...CodeEditor.defaultSelectionStyle,
-          color: localCollaborator.color
-        };
-
-        collaborators.changed.connect(this._onCollaboratorsChanged, this);
-        // Trigger an initial onCollaboratorsChanged event.
-        this._onCollaboratorsChanged();
-      });
-    }
+    const layout = (this.layout = new StackedLayout());
+    layout.addWidget(editorWidget);
   }
 
   /**
@@ -89,107 +77,6 @@ export class FileEditorCodeWrapper extends CodeEditorWrapper {
    */
   get ready(): Promise<void> {
     return this._ready.promise;
-  }
-
-  /**
-   * Handle actions that should be taken when the context is ready.
-   */
-  private _onContextReady(): void {
-    if (this.isDisposed) {
-      return;
-    }
-    const contextModel = this._context.model;
-    const editor = this.editor;
-    const editorModel = editor.model;
-
-    // Set the editor model value.
-    editorModel.value.text = contextModel.toString();
-
-    // Prevent the initial loading from disk from being in the editor history.
-    editor.clearHistory();
-
-    // Wire signal connections.
-    contextModel.contentChanged.connect(this._onContentChanged, this);
-
-    // Resolve the ready promise.
-    this._ready.resolve(undefined);
-  }
-
-  /**
-   * Handle a change in context model content.
-   */
-  private _onContentChanged(): void {
-    const editorModel = this.editor.model;
-    const oldValue = editorModel.value.text;
-    const newValue = this._context.model.toString();
-
-    if (oldValue !== newValue) {
-      editorModel.value.text = newValue;
-    }
-  }
-
-  /**
-   * Handle a change to the collaborators on the model
-   * by updating UI elements associated with them.
-   */
-  private _onCollaboratorsChanged(): void {
-    // If there are selections corresponding to non-collaborators,
-    // they are stale and should be removed.
-    const collaborators = this._context.model.modelDB.collaborators;
-    if (!collaborators) {
-      return;
-    }
-    for (const key of this.editor.model.selections.keys()) {
-      if (!collaborators.has(key)) {
-        this.editor.model.selections.delete(key);
-      }
-    }
-  }
-
-  protected _context: DocumentRegistry.Context;
-  private _ready = new PromiseDelegate<void>();
-}
-
-/**
- * A widget for editors.
- */
-export class FileEditor extends Widget {
-  /**
-   * Construct a new editor widget.
-   */
-  constructor(options: FileEditor.IOptions) {
-    super();
-    this.addClass('jp-FileEditor');
-
-    const context = (this._context = options.context);
-    this._mimeTypeService = options.mimeTypeService;
-
-    const editorWidget = (this.editorWidget = new FileEditorCodeWrapper(
-      options
-    ));
-    this.editor = editorWidget.editor;
-    this.model = editorWidget.model;
-
-    // Listen for changes to the path.
-    context.pathChanged.connect(this._onPathChanged, this);
-    this._onPathChanged();
-
-    const layout = (this.layout = new StackedLayout());
-    layout.addWidget(editorWidget);
-  }
-
-  /**
-   * Get the context for the editor widget.
-   */
-  get context(): DocumentRegistry.Context {
-    return this.editorWidget.context;
-  }
-
-  /**
-   * A promise that resolves when the file editor is ready.
-   */
-  get ready(): Promise<void> {
-    return this.editorWidget.ready;
   }
 
   /**
@@ -249,22 +136,36 @@ export class FileEditor extends Widget {
   }
 
   /**
+   * Handle actions that should be taken when the context is ready.
+   */
+  private _onContextReady(): void {
+    if (this.isDisposed) {
+      return;
+    }
+
+    // Prevent the initial loading from disk from being in the editor history.
+    this.editor.clearHistory();
+    // Resolve the ready promise.
+    this._ready.resolve(undefined);
+  }
+
+  /**
    * Handle a change to the path.
    */
   private _onPathChanged(): void {
     const editor = this.editor;
     const localPath = this._context.localPath;
 
-    editor.model.mimeType = this._mimeTypeService.getMimeTypeByFilePath(
-      localPath
-    );
+    editor.model.mimeType =
+      this._mimeTypeService.getMimeTypeByFilePath(localPath);
   }
 
-  private editorWidget: FileEditorCodeWrapper;
-  public model: CodeEditor.IModel;
-  public editor: CodeEditor.IEditor;
-  protected _context: DocumentRegistry.Context;
+  model: CodeEditor.IModel;
+  editor: CodeEditor.IEditor;
+  private _context: DocumentRegistry.Context;
+  private _editorWidget: CodeEditorWrapper;
   private _mimeTypeService: IEditorMimeTypeService;
+  private _ready = new PromiseDelegate<void>();
 }
 
 /**

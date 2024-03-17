@@ -80,14 +80,17 @@ export namespace NBTestUtils {
     }
   ];
 
-  export const DEFAULT_CONTENT: nbformat.INotebookContent = require('../default.json') as nbformat.INotebookContent;
-  export const DEFAULT_CONTENT_45: nbformat.INotebookContent = require('../default-45.json') as nbformat.INotebookContent;
+  export const DEFAULT_CONTENT: nbformat.INotebookContent =
+    require('../default.json') as nbformat.INotebookContent;
+  export const DEFAULT_CONTENT_45: nbformat.INotebookContent =
+    require('../default-45.json') as nbformat.INotebookContent;
 
   export const defaultEditorConfig = { ...StaticNotebook.defaultEditorConfig };
 
-  export const editorFactory = editorServices.factoryService.newInlineEditor.bind(
-    editorServices.factoryService
-  );
+  export const editorFactory =
+    editorServices.factoryService.newInlineEditor.bind(
+      editorServices.factoryService
+    );
 
   export const mimeTypeService = editorServices.mimeTypeService;
 
@@ -119,7 +122,7 @@ export namespace NBTestUtils {
    */
   export function createCellEditor(model?: CodeCellModel): CodeEditorWrapper {
     return new CodeEditorWrapper({
-      model: model || new CodeCellModel({}),
+      model: model || new CodeCellModel(),
       factory: editorFactory
     });
   }
@@ -145,7 +148,11 @@ export namespace NBTestUtils {
     return new Notebook({
       rendermime: defaultRenderMime(),
       contentFactory: createNotebookFactory(),
-      mimeTypeService
+      mimeTypeService,
+      notebookConfig: {
+        ...StaticNotebook.defaultNotebookConfig,
+        windowingMode: 'none'
+      }
     });
   }
 

@@ -1,13 +1,13 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { galata, IJupyterLabPageFixture, test } from '@jupyterlab/galata';
-import { expect } from '@playwright/test';
 import {
-  generateCaptureArea,
-  positionMouse,
-  setLeftSidebarWidth
-} from './utils';
+  expect,
+  galata,
+  IJupyterLabPageFixture,
+  test
+} from '@jupyterlab/galata';
+import { positionMouseOver, setSidebarWidth } from './utils';
 
 test.use({
   autoGoto: false,
@@ -21,16 +21,15 @@ test.describe('Debugger', () => {
 
     await createNotebook(page);
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 62, left: 1050, width: 190, height: 28 })]
-    );
+    // Wait for kernel to settle on idle
+    await page.waitForSelector('#jp-main-statusbar >> text=Idle');
+    await page.waitForSelector('#jp-main-statusbar >> text=Busy');
+    await page.waitForSelector('#jp-main-statusbar >> text=Idle');
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({
+        clip: { x: 1050, y: 62, width: 190, height: 28 }
+      })
     ).toMatchSnapshot('debugger_kernel.png');
   });
 
@@ -41,17 +40,10 @@ test.describe('Debugger', () => {
 
     await page.debugger.switchOn();
     await page.waitForCondition(() => page.debugger.isOpen());
-
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 62, left: 800, width: 190, height: 28 })]
-    );
+    await setSidebarWidth(page, 251, 'right');
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 62, x: 800, width: 190, height: 28 } })
     ).toMatchSnapshot('debugger_activate.png');
   });
 
@@ -62,19 +54,17 @@ test.describe('Debugger', () => {
 
     await page.debugger.switchOn();
     await page.waitForCondition(() => page.debugger.isOpen());
+    await setSidebarWidth(page, 251, 'right');
 
     await setBreakpoint(page);
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 100, left: 300, width: 300, height: 80 })]
-    );
+    // Wait for breakpoint to finish appearing
+    await page.waitForTimeout(150);
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({
+        clip: { y: 100, x: 300, width: 300, height: 80 }
+      })
     ).toMatchSnapshot('debugger_breakpoint.png');
   });
 
@@ -83,19 +73,21 @@ test.describe('Debugger', () => {
 
     await createNotebook(page);
 
-    // Inject capture zone
+    const runButton = await page.waitForSelector(
+      '.jp-Toolbar-item >> [data-command="runmenu:run"]'
+    );
+    await runButton.hover();
+
+    // Inject mouse pointer
     await page.evaluate(
-      ([mouse, zone]) => {
-        document.body.insertAdjacentHTML('beforeend', mouse + zone);
+      ([mouse]) => {
+        document.body.insertAdjacentHTML('beforeend', mouse);
       },
-      [
-        positionMouse({ x: 446, y: 80 }),
-        generateCaptureArea({ top: 62, left: 400, width: 190, height: 80 })
-      ]
+      [await positionMouseOver(runButton)]
     );
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({ clip: { y: 62, x: 400, width: 190, height: 60 } })
     ).toMatchSnapshot('debugger_run.png');
   });
 
@@ -106,25 +98,20 @@ test.describe('Debugger', () => {
 
     await page.debugger.switchOn();
     await page.waitForCondition(() => page.debugger.isOpen());
+    await setSidebarWidth(page, 251, 'right');
 
     await setBreakpoint(page);
 
     // Don't wait as it will be blocked
-    page.notebook.runCell(1);
+    void page.notebook.runCell(1);
 
     // Wait to be stopped on the breakpoint
     await page.debugger.waitForCallStack();
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 100, left: 300, width: 300, height: 80 })]
-    );
-
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({
+        clip: { y: 100, x: 300, width: 300, height: 80 }
+      })
     ).toMatchSnapshot('debugger_stop_on_breakpoint.png');
 
     await page.click('button[title^=Continue]');
@@ -135,21 +122,24 @@ test.describe('Debugger', () => {
 
     await createNotebook(page);
 
-    await page.click('[data-id="jp-debugger-sidebar"]');
+    const sidebar = await page.waitForSelector(
+      '[data-id="jp-debugger-sidebar"]'
+    );
+    await sidebar.click();
+    await setSidebarWidth(page, 251, 'right');
 
-    // Inject capture zone
+    // Inject mouse pointer
     await page.evaluate(
-      ([mouse, zone]) => {
-        document.body.insertAdjacentHTML('beforeend', mouse + zone);
+      ([mouse]) => {
+        document.body.insertAdjacentHTML('beforeend', mouse);
       },
-      [
-        positionMouse({ x: 1240, y: 115 }),
-        generateCaptureArea({ top: 22, left: 1200, width: 85, height: 160 })
-      ]
+      [await positionMouseOver(sidebar, { left: 0.25 })]
     );
 
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({
+        clip: { y: 22, x: 1200, width: 85, height: 160 }
+      })
     ).toMatchSnapshot('debugger_sidebar.png');
   });
 
@@ -160,25 +150,20 @@ test.describe('Debugger', () => {
 
     await page.debugger.switchOn();
     await page.waitForCondition(() => page.debugger.isOpen());
+    await setSidebarWidth(page, 251, 'right');
 
     await setBreakpoint(page);
 
     // Don't wait as it will be blocked
-    page.notebook.runCell(1);
+    void page.notebook.runCell(1);
 
     // Wait to be stopped on the breakpoint
     await page.debugger.waitForCallStack();
 
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 58, left: 998, width: 280, height: 138 })]
-    );
-
     expect(
-      await (await page.$('#capture-screenshot')).screenshot()
+      await page.screenshot({
+        clip: { y: 58, x: 998, width: 280, height: 138 }
+      })
     ).toMatchSnapshot('debugger_variables.png');
 
     await page.click('button[title^=Continue]');
@@ -191,24 +176,15 @@ test.describe('Debugger', () => {
 
     await page.debugger.switchOn();
     await page.waitForCondition(() => page.debugger.isOpen());
+    await setSidebarWidth(page, 251, 'right');
 
     await setBreakpoint(page);
 
     // Don't wait as it will be blocked
-    page.notebook.runCell(1);
+    void page.notebook.runCell(1);
 
     // Wait to be stopped on the breakpoint
     await page.debugger.waitForCallStack();
-
-    await page.pause();
-
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 196, left: 998, width: 280, height: 138 })]
-    );
 
     await expect(
       page.locator('[aria-label="side panel content"] >> text=add').first()
@@ -216,7 +192,8 @@ test.describe('Debugger', () => {
 
     // Don't compare screenshot as the kernel id varies
     // Need to set precisely the path
-    await (await page.$('#capture-screenshot')).screenshot({
+    await page.screenshot({
+      clip: { y: 196, x: 998, width: 280, height: 138 },
       path: 'test/documentation/screenshots/debugger-callstack.png'
     });
 
@@ -230,22 +207,15 @@ test.describe('Debugger', () => {
 
     await page.debugger.switchOn();
     await page.waitForCondition(() => page.debugger.isOpen());
+    await setSidebarWidth(page, 251, 'right');
 
     await setBreakpoint(page);
 
     // Don't wait as it will be blocked
-    page.notebook.runCell(1);
+    void page.notebook.runCell(1);
 
     // Wait to be stopped on the breakpoint
     await page.debugger.waitForCallStack();
-
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 334, left: 998, width: 280, height: 138 })]
-    );
 
     const breakpointsPanel = await page.debugger.getBreakPointsPanel();
     expect(await breakpointsPanel.innerText()).toMatch(
@@ -254,7 +224,8 @@ test.describe('Debugger', () => {
 
     // Don't compare screenshot as the kernel id varies
     // Need to set precisely the path
-    await (await page.$('#capture-screenshot')).screenshot({
+    await page.screenshot({
+      clip: { y: 334, x: 998, width: 280, height: 138 },
       path: 'test/documentation/screenshots/debugger-breakpoints.png'
     });
 
@@ -268,22 +239,15 @@ test.describe('Debugger', () => {
 
     await page.debugger.switchOn();
     await page.waitForCondition(() => page.debugger.isOpen());
+    await setSidebarWidth(page, 251, 'right');
 
     await setBreakpoint(page);
 
     // Don't wait as it will be blocked
-    page.notebook.runCell(1);
+    void page.notebook.runCell(1);
 
     // Wait to be stopped on the breakpoint
     await page.debugger.waitForCallStack();
-
-    // Inject capture zone
-    await page.evaluate(
-      ([zone]) => {
-        document.body.insertAdjacentHTML('beforeend', zone);
-      },
-      [generateCaptureArea({ top: 478, left: 998, width: 280, height: 138 })]
-    );
 
     await expect(
       page.locator(
@@ -293,7 +257,8 @@ test.describe('Debugger', () => {
 
     // Don't compare screenshot as the kernel id varies
     // Need to set precisely the path
-    await (await page.$('#capture-screenshot')).screenshot({
+    await page.screenshot({
+      clip: { y: 478, x: 998, width: 280, height: 138 },
       path: 'test/documentation/screenshots/debugger-source.png'
     });
 
@@ -304,7 +269,7 @@ test.describe('Debugger', () => {
 async function createNotebook(page: IJupyterLabPageFixture) {
   await page.notebook.createNew();
 
-  await setLeftSidebarWidth(page);
+  await setSidebarWidth(page);
 
   await page.waitForSelector('text=Python 3 (ipykernel) | Idle');
 }

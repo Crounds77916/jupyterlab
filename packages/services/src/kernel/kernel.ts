@@ -1,8 +1,6 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
-import { IIterator } from '@lumino/algorithm';
-
 import { JSONObject, JSONValue } from '@lumino/coreutils';
 
 import { IDisposable, IObservableDisposable } from '@lumino/disposable';
@@ -367,7 +365,10 @@ export interface IKernelConnection extends IObservableDisposable {
    * #### Notes
    * See [Messaging in Jupyter](https://jupyter-client.readthedocs.io/en/latest/messaging.html#messages-on-the-stdin-router-dealer-sockets).
    */
-  sendInputReply(content: KernelMessage.IInputReplyMsg['content']): void;
+  sendInputReply(
+    content: KernelMessage.IInputReplyMsg['content'],
+    parent_header: KernelMessage.IInputReplyMsg['parent_header']
+  ): void;
 
   /**
    * Create a new comm.
@@ -614,7 +615,7 @@ export interface IManager extends IBaseManager {
    *
    * @returns A new iterator over the running kernels.
    */
-  running(): IIterator<IModel>;
+  running(): IterableIterator<IModel>;
 
   /**
    * Force a refresh of the running kernels.
@@ -775,7 +776,10 @@ export interface IFuture<
   /**
    * Send an `input_reply` message.
    */
-  sendInputReply(content: KernelMessage.IInputReplyMsg['content']): void;
+  sendInputReply(
+    content: KernelMessage.IInputReplyMsg['content'],
+    parent_header: KernelMessage.IInputReplyMsg['parent_header']
+  ): void;
 }
 
 export interface IShellFuture<
